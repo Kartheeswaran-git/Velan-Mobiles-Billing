@@ -22,6 +22,7 @@ create table if not exists public.customers (
 alter table public.customers add column if not exists aadhar_no text default '';
 alter table public.customers alter column address drop not null;
 alter table public.customers alter column address set default '';
+alter table public.customers add constraint customers_phone_unique unique (phone);
 
 create table if not exists public.inventory (
   id uuid primary key default gen_random_uuid(),
@@ -349,7 +350,8 @@ $$;
 create or replace function public.ensure_customer(
   p_name text,
   p_phone text,
-  p_address text default ''
+  p_address text default '',
+  p_aadhar_no text default ''
 )
 returns uuid
 language plpgsql
@@ -374,8 +376,8 @@ begin
   end if;
 
   if v_id is null then
-    insert into public.customers(name, phone, address)
-    values (p_name, p_phone, coalesce(p_address, ''))
+    insert into public.customers(name, phone, address, aadhar_no)
+    values (p_name, p_phone, coalesce(p_address, ''), coalesce(p_aadhar_no, ''))
     returning id into v_id;
   else
     -- Update existing record with latest details
@@ -383,7 +385,8 @@ begin
     set 
       name = coalesce(p_name, name),
       phone = coalesce(p_phone, phone),
-      address = case when p_address <> '' then p_address else address end
+      address = case when p_address <> '' then p_address else address end,
+      aadhar_no = case when p_aadhar_no <> '' then p_aadhar_no else aadhar_no end
     where id = v_id;
   end if;
 
@@ -546,6 +549,7 @@ $$;
 
 create or replace function public.create_old_mobile_purchase(
   p_customer_name text,
+  p_customer_phone text,
   p_brand text,
   p_model text,
   p_imei text,
@@ -573,6 +577,8 @@ begin
   end if;
 
   select name into v_actor_name from public.users where id = v_actor_id;
+  perform public.ensure_customer(p_customer_name, p_customer_phone);
+  
   insert into public.inventory(
     category, type, brand, model, item_name, imei, serial_number,
     buying_price, selling_price, quantity, min_stock, supplier, status,
@@ -600,11 +606,14 @@ begin
 end;
 $$;
 
-create or replace function public.sell_old_mobile(
+create or replace function public.create_old_mobile_sale(
   p_inventory_id uuid,
-  p_sell_price numeric,
   p_customer_name text,
-  p_created_by uuid
+  p_customer_phone text,
+  p_sell_price numeric,
+  p_payment_type text,
+  p_created_by uuid,
+  p_created_by_name text
 )
 returns void
 language plpgsql
@@ -614,6 +623,7 @@ as $$
 declare
   v_buy_price numeric;
   v_actor_id uuid;
+  v_actor_name text;
   v_created_by_name text;
 begin
   v_actor_id := auth.uid();
@@ -621,12 +631,14 @@ begin
     raise exception 'Authentication required';
   end if;
 
+  select name into v_actor_name from public.users where id = v_actor_id;
+  perform public.ensure_customer(p_customer_name, p_customer_phone);
+
   select buying_price into v_buy_price from public.inventory where id = p_inventory_id for update;
   if v_buy_price is null then
     raise exception 'Old mobile not found';
   end if;
 
-  select name into v_created_by_name from public.users where id = v_actor_id;
 
   update public.inventory
   set selling_price = p_sell_price, quantity = 0, status = 'sold'

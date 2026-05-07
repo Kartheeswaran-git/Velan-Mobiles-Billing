@@ -442,11 +442,10 @@ export async function addLedgerEntry(ledgerName, payload, currentUser) {
     createdBy: currentUser.uid,
     createdByName: currentUser.name,
   });
-}
-
 export async function createOldMobilePurchase(payload, currentUser) {
   const { error } = await supabase.rpc("create_old_mobile_purchase", {
     p_customer_name: payload.customerName,
+    p_customer_phone: payload.customerPhone,
     p_brand: payload.brand,
     p_model: payload.model,
     p_imei: payload.imei,
@@ -455,8 +454,8 @@ export async function createOldMobilePurchase(payload, currentUser) {
     p_expected_sell_price: Number(payload.expectedSellPrice || 0),
     p_condition: payload.condition || "",
     p_note: payload.note || "",
-    p_created_by: currentUser.uid,
-    p_created_by_name: currentUser.name,
+    p_created_by: currentUser.id || currentUser.uid,
+    p_created_by_name: currentUser.name || "Staff",
   });
 
   if (error) {
@@ -554,12 +553,15 @@ export async function updatePurchaseEntry(id, payload) {
   });
 }
 
-export async function sellOldMobile({ inventoryId, sellPrice, customerName, currentUser }) {
-  const { error } = await supabase.rpc("sell_old_mobile", {
+export async function sellOldMobile({ inventoryId, sellPrice, customerName, customerPhone, paymentType, currentUser }) {
+  const { error } = await supabase.rpc("create_old_mobile_sale", {
     p_inventory_id: inventoryId,
-    p_sell_price: Number(sellPrice),
     p_customer_name: customerName,
-    p_created_by: currentUser.uid,
+    p_customer_phone: customerPhone,
+    p_sell_price: Number(sellPrice),
+    p_payment_type: paymentType || "cash",
+    p_created_by: currentUser.id || currentUser.uid,
+    p_created_by_name: currentUser.name || "Staff"
   });
 
   if (error) {
@@ -658,7 +660,11 @@ export async function createMoneyTransfer(payload, currentUser) {
     throw new Error("Enter a valid transfer amount.");
   }
 
-  await saveCustomerFromTransfer(payload);
+  await supabase.rpc('ensure_customer', { 
+    p_name: payload.customerName, 
+    p_phone: payload.customerPhone,
+    p_aadhar_no: payload.aadharNo || ""
+  });
 
   const transferNo = `MT-${formatDateKey(new Date())}-${Math.floor(Date.now() / 1000).toString().slice(-4)}`;
   const isCashToBank = payload.transferType === "cash_to_bank";
