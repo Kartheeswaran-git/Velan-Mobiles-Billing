@@ -1,19 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Autocomplete from "../components/Autocomplete";
 import Button from "../components/Button";
 import DataTable from "../components/DataTable";
 import Loader from "../components/Loader";
 import PageSection from "../components/PageSection";
-import { createPurchaseEntry, updatePurchaseEntry } from "../supabase/database";
 import { useAuth } from "../hooks/useAuth";
 import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
-import { inventoryCategories } from "../utils/constants";
 import { formatCurrency, formatDate } from "../utils/format";
+import { supabase } from "../supabase/client";
+import { Link } from "react-router-dom";
 
 const blankPurchase = {
+  productId: "",
   supplierName: "",
   supplierPhone: "",
-  category: "accessory",
+  category: "",
   type: "",
   brand: "",
   model: "",
@@ -23,17 +24,18 @@ const blankPurchase = {
   sellingPrice: "",
   paymentSource: "cash",
   note: "",
-  minStock: "",
+  imei: "",
 };
 
 export default function PurchasesPage() {
   const { user } = useAuth();
   const purchases = useFirestoreCollection("purchase_entries", { orderBy: { field: "createdAt", direction: "desc" } });
-  const inventory = useFirestoreCollection("inventory", { orderBy: { field: "createdAt", direction: "desc" } });
+  const products = useFirestoreCollection("product_master", { orderBy: { field: "createdAt", direction: "desc" } });
   const customers = useFirestoreCollection("customers", { orderBy: { field: "createdAt", direction: "desc" } });
   const [form, setForm] = useState(blankPurchase);
   const [submitting, setSubmitting] = useState(false);
-  const [editingId, setEditingId] = useState("");
+  const [message, setMessage] = useState("");
+  const [searchItem, setSearchItem] = useState("");
 
   const matchedSupplier = customers.data.find((c) => 
     form.supplierName.length >= 3 && 
@@ -41,103 +43,159 @@ export default function PurchasesPage() {
   );
 
   useEffect(() => {
-    if (!matchedSupplier || editingId) return;
+    if (!matchedSupplier) return;
     setForm((current) => ({
       ...current,
       supplierPhone: matchedSupplier.phone || current.supplierPhone,
     }));
-  }, [matchedSupplier?.id, editingId]);
+  }, [matchedSupplier?.id]);
 
-  const typeSuggestions = [...new Set(inventory.data.map((item) => item.type).filter(Boolean))];
-  const brandSuggestions = [...new Set(inventory.data.map((item) => item.brand).filter(Boolean))];
-  const modelSuggestions = [...new Set(inventory.data.map((item) => item.model).filter(Boolean))];
+  const productSuggestions = useMemo(() => 
+    products.data.map(p => `${p.brand} ${p.model} - ${p.itemName}`),
+    [products.data]
+  );
+
+  const handleProductSelect = (selectedText) => {
+    const found = products.data.find(p => `${p.brand} ${p.model} - ${p.itemName}` === selectedText);
+    if (found) {
+      setForm(curr => ({
+        ...curr,
+        productId: found.id,
+        category: found.category,
+        type: found.type,
+        brand: found.brand,
+        model: found.model,
+        itemName: found.itemName,
+        sellingPrice: found.sellingPrice
+      }));
+      setSearchItem(selectedText);
+    }
+  };
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (!form.productId) {
+      setMessage("Error: Please select a product from the list or add it to Items first.");
+      return;
+    }
     setSubmitting(true);
+    setMessage("");
     try {
-      if (editingId) {
-        await updatePurchaseEntry(editingId, form);
-      } else {
-        await createPurchaseEntry(form, user);
-      }
+      const { data, error } = await supabase.rpc("record_purchase", {
+        p_product_id: form.productId,
+        p_supplier_name: form.supplierName,
+        p_supplier_phone: form.supplierPhone,
+        p_quantity: Number(form.quantity),
+        p_buying_price: Number(form.buyingPrice),
+        p_payment_source: form.paymentSource,
+        p_note: form.note,
+        p_created_by: user.id || user.uid,
+        p_created_by_name: user.name || "Staff",
+        p_imei: form.imei || ""
+      });
+
+      if (error) throw error;
+      
+      setMessage(`Purchase recorded successfully: ${data}`);
       setForm(blankPurchase);
-      setEditingId("");
+      setSearchItem("");
+    } catch (err) {
+      console.error(err);
+      setMessage("Error: " + err.message);
     } finally {
       setSubmitting(false);
     }
   }
 
-  if (purchases.loading || inventory.loading) {
-    return <Loader text="Loading purchases..." />;
+  if (purchases.loading || products.loading) {
+    return <Loader text="Loading purchase flow..." />;
   }
 
   return (
     <div className="list-stack">
-      <PageSection title={editingId ? "Edit Purchase Entry" : "New Purchase Entry"} subtitle="Record stock purchases and auto-add them to inventory">
+      <PageSection title="New Purchase Entry" subtitle="Select a product from master list and record supplier details">
         <form className="list-stack" onSubmit={handleSubmit}>
+          <div className="form-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <div className="field" style={{ gridColumn: 'span 2' }}>
+              <Autocomplete
+                label="Search Product (Brand, Model, or Name)"
+                placeholder="Type to search..."
+                value={searchItem}
+                suggestions={productSuggestions}
+                onChange={(e) => {
+                  setSearchItem(e.target.value);
+                  if (form.productId) setForm(curr => ({ ...curr, productId: "" }));
+                }}
+                onSelect={handleProductSelect}
+                required
+              />
+              {!form.productId && searchItem.length > 2 && (
+                <div style={{ marginTop: 8 }}>
+                  <span style={{ fontSize: '0.85rem', color: '#6b7280' }}>Product not found? </span>
+                  <Link to="/inventory" className="link-text" style={{ fontSize: '0.85rem', fontWeight: '600' }}>Add New Product to Items</Link>
+                </div>
+              )}
+            </div>
+
+            <div className="field">
+              <label>Category</label>
+              <input value={form.category} readOnly placeholder="Auto-filled" style={{ backgroundColor: '#f9fafb' }} />
+            </div>
+            <div className="field">
+              <label>Selling Price</label>
+              <input value={form.sellingPrice ? formatCurrency(form.sellingPrice) : ""} readOnly placeholder="Auto-filled" style={{ backgroundColor: '#f9fafb' }} />
+            </div>
+          </div>
+
           <div className="form-grid">
             <Autocomplete
               label="Supplier Name"
-              placeholder="Distributor or shop name"
+              placeholder="Distributor name"
               value={form.supplierName}
               suggestions={customers.data.map(c => c.name)}
-              hint={matchedSupplier && !editingId ? "Supplier auto-filled" : null}
+              hint={matchedSupplier ? "Supplier auto-filled" : null}
               onChange={(e) => setForm(curr => ({ ...curr, supplierName: e.target.value }))}
               onSelect={(name) => {
                 const found = customers.data.find(c => c.name === name);
                 if (found) {
-                  setForm(curr => ({
-                    ...curr,
-                    supplierName: found.name,
-                    supplierPhone: found.phone || ""
-                  }));
+                  setForm(curr => ({ ...curr, supplierName: found.name, supplierPhone: found.phone || "" }));
                 }
               }}
               required
             />
             <Autocomplete
               label="Supplier Phone"
-              placeholder="Supplier mobile number"
+              placeholder="Supplier mobile"
               value={form.supplierPhone}
               suggestions={customers.data.map(c => c.phone).filter(Boolean)}
-              hint={matchedSupplier && !editingId ? "Auto-filled" : null}
               onChange={(e) => setForm(curr => ({ ...curr, supplierPhone: e.target.value }))}
               onSelect={(phone) => {
                 const found = customers.data.find(c => c.phone === phone);
                 if (found) {
-                  setForm(curr => ({
-                    ...curr,
-                    supplierName: found.name || "",
-                    supplierPhone: found.phone
-                  }));
+                  setForm(curr => ({ ...curr, supplierName: found.name || "", supplierPhone: found.phone }));
                 }
               }}
             />
-            <div className="field"><label>Category</label><select value={form.category} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}>{inventoryCategories.filter((item) => item !== "old_mobile").map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
-            <div className="field"><label>Type</label><input list="purchase-type-options" value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))} placeholder="mobile, accessory, spare..." /></div>
-            <div className="field"><label>Brand</label><input list="purchase-brand-options" value={form.brand} onChange={(event) => setForm((current) => ({ ...current, brand: event.target.value }))} placeholder="Samsung, Oppo, Apple..." /></div>
-            <div className="field"><label>Model</label><input list="purchase-model-options" value={form.model} onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))} placeholder="A15, C55, iPhone 12..." /></div>
-            <div className="field"><label>Item Name</label><input value={form.itemName} onChange={(event) => setForm((current) => ({ ...current, itemName: event.target.value }))} placeholder="Tempered glass 9D" required /></div>
-            <div className="field"><label>Quantity</label><input type="number" min="1" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} placeholder="Purchase qty" /></div>
-            <div className="field"><label>Buying Price</label><input type="number" min="0" value={form.buyingPrice} onChange={(event) => setForm((current) => ({ ...current, buyingPrice: event.target.value }))} placeholder="Cost per item" /></div>
-            <div className="field"><label>Selling Price</label><input type="number" min="0" value={form.sellingPrice} onChange={(event) => setForm((current) => ({ ...current, sellingPrice: event.target.value }))} placeholder="Sale price per item" /></div>
-            <div className="field"><label>Min Stock</label><input type="number" min="0" value={form.minStock} onChange={(event) => setForm((current) => ({ ...current, minStock: event.target.value }))} placeholder="Reorder alert qty" /></div>
+            <div className="field"><label>Quantity</label><input type="number" min="1" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} placeholder="Purchase qty" required /></div>
+            <div className="field"><label>Buying Price</label><input type="number" min="0" value={form.buyingPrice} onChange={(event) => setForm((current) => ({ ...current, buyingPrice: event.target.value }))} placeholder="Cost per item" required /></div>
             <div className="field"><label>Payment Source</label><select value={form.paymentSource} onChange={(event) => setForm((current) => ({ ...current, paymentSource: event.target.value }))}><option value="cash">cash</option><option value="account">account</option></select></div>
-            <div className="field"><label>Note</label><input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="Invoice no, warranty, batch..." /></div>
+            <div className="field">
+              <label>IMEI / Serial (Optional)</label>
+              <input value={form.imei} onChange={(event) => setForm((current) => ({ ...current, imei: event.target.value }))} placeholder="Unique ID for this stock" />
+            </div>
           </div>
-          <datalist id="supplier-options">{[...new Set(customers.data.map(c => c.name))].map((name) => <option key={name} value={name} />)}</datalist>
-          <datalist id="purchase-type-options">{typeSuggestions.map((option) => <option key={option} value={option} />)}</datalist>
-          <datalist id="purchase-brand-options">{brandSuggestions.map((option) => <option key={option} value={option} />)}</datalist>
-          <datalist id="purchase-model-options">{modelSuggestions.map((option) => <option key={option} value={option} />)}</datalist>
+          
+          <div className="field"><label>Note</label><input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="Invoice no, warranty, batch..." /></div>
+
+          {message ? <div className={`badge ${message.startsWith("Error") ? "danger" : "success"}`}>{message}</div> : null}
+          
           <div className="topbar-actions">
-            <Button type="submit" disabled={submitting}>{submitting ? "Saving..." : editingId ? "Update Purchase" : "Save Purchase"}</Button>
-            {editingId ? <Button type="button" variant="secondary" onClick={() => { setForm(blankPurchase); setEditingId(""); }}>Cancel</Button> : null}
+            <Button type="submit" disabled={submitting}>{submitting ? "Processing..." : "Confirm Purchase & Update Stock"}</Button>
           </div>
         </form>
       </PageSection>
 
-      <PageSection title="Purchase History" subtitle="Recent stock purchases">
+      <PageSection title="Purchase History" subtitle="Recent stock acquisitions">
         <DataTable
           rows={purchases.data}
           columns={[
@@ -147,37 +205,7 @@ export default function PurchasesPage() {
             { key: "quantity", label: "Qty" },
             { key: "totalAmount", label: "Total", render: (row) => formatCurrency(row.totalAmount) },
             { key: "paymentSource", label: "Paid Via" },
-            { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) },
-            {
-              key: "action",
-              label: "Action",
-              render: (row) => (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => {
-                    setEditingId(row.id);
-                    setForm({
-                      supplierName: row.supplierName || "",
-                      supplierPhone: row.supplierPhone || "",
-                      category: row.category || "accessory",
-                      type: row.type || "",
-                      brand: row.brand || "",
-                      model: row.model || "",
-                      itemName: row.itemName || "",
-                      quantity: row.quantity || 1,
-                      buyingPrice: row.buyingPrice ?? "",
-                      sellingPrice: row.sellingPrice ?? "",
-                      paymentSource: row.paymentSource || "cash",
-                      note: row.note || "",
-                      minStock: row.minStock ?? "",
-                    });
-                  }}
-                >
-                  Edit
-                </Button>
-              ),
-            },
+            { key: "createdAt", label: "Date", render: (row) => formatDate(row.createdAt) },
           ]}
         />
       </PageSection>

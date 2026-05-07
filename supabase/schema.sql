@@ -19,10 +19,21 @@ create table if not exists public.customers (
   created_at timestamptz not null default now()
 );
 
-alter table public.customers add column if not exists aadhar_no text default '';
-alter table public.customers alter column address drop not null;
-alter table public.customers alter column address set default '';
 alter table public.customers add constraint customers_phone_unique unique (phone);
+
+create table if not exists public.product_master (
+  id uuid primary key default gen_random_uuid(),
+  category text not null check (category in ('new_mobile', 'accessory', 'spare_part', 'old_mobile')),
+  type text default '',
+  brand text default '',
+  model text default '',
+  item_name text not null,
+  selling_price numeric(12,2) not null default 0,
+  min_stock integer not null default 0,
+  note text default '',
+  created_at timestamptz not null default now(),
+  unique(brand, model, item_name)
+);
 
 create table if not exists public.inventory (
   id uuid primary key default gen_random_uuid(),
@@ -822,6 +833,17 @@ for all to authenticated
 using (public.is_admin())
 with check (public.is_admin());
 
+alter table public.product_master enable row level security;
+
+create policy "product master select" on public.product_master
+for select to authenticated
+using (public.is_active_user());
+
+create policy "product master admin" on public.product_master
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
 create policy "automated bills admin" on public.automated_bills
 for all to authenticated
 using (public.is_admin())
@@ -956,6 +978,137 @@ begin
   alter publication supabase_realtime add table public.app_settings;
 exception when duplicate_object then null;
 end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.product_master;
+exception when duplicate_object then null;
+end $$;
+
+
+-- Ensure inventory has a unique constraint for matching during purchases
+alter table public.inventory add constraint inventory_matching_key unique (brand, model, item_name, imei);
+
+create or replace function public.create_or_update_product(
+  p_id uuid,
+  p_category text,
+  p_type text,
+  p_brand text,
+  p_model text,
+  p_item_name text,
+  p_selling_price numeric,
+  p_min_stock integer,
+  p_note text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  if p_id is not null then
+    update public.product_master
+    set
+      category = p_category,
+      type = coalesce(p_type, ''),
+      brand = coalesce(p_brand, ''),
+      model = coalesce(p_model, ''),
+      item_name = p_item_name,
+      selling_price = p_selling_price,
+      min_stock = p_min_stock,
+      note = coalesce(p_note, '')
+    where id = p_id
+    returning id into v_id;
+  else
+    insert into public.product_master(category, type, brand, model, item_name, selling_price, min_stock, note)
+    values (p_category, coalesce(p_type, ''), coalesce(p_brand, ''), coalesce(p_model, ''), p_item_name, p_selling_price, p_min_stock, coalesce(p_note, ''))
+    on conflict (brand, model, item_name)
+    do update set
+      category = EXCLUDED.category,
+      type = EXCLUDED.type,
+      selling_price = EXCLUDED.selling_price,
+      min_stock = EXCLUDED.min_stock,
+      note = EXCLUDED.note
+    returning id into v_id;
+  end if;
+  return v_id;
+end;
+$$;
+
+create or replace function public.record_purchase(
+  p_product_id uuid,
+  p_supplier_name text,
+  p_supplier_phone text,
+  p_quantity integer,
+  p_buying_price numeric,
+  p_payment_source text,
+  p_note text,
+  p_created_by uuid,
+  p_created_by_name text,
+  p_imei text default ''
+)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_purchase_no text;
+  v_product record;
+  v_inventory_id uuid;
+begin
+  select * into v_product from public.product_master where id = p_product_id;
+  if v_product.id is null then
+    raise exception 'Product not found';
+  end if;
+
+  v_purchase_no := public.next_document_number('purchase_no', 'PUR');
+  
+  -- Ensure supplier is in parties
+  perform public.ensure_customer(p_supplier_name, p_supplier_phone);
+
+  -- Insert purchase entry
+  insert into public.purchase_entries(
+    purchase_no, supplier_name, supplier_phone, category, type, brand, model, item_name,
+    quantity, buying_price, selling_price, total_amount, payment_source, note,
+    created_by, created_at
+  )
+  values (
+    v_purchase_no, p_supplier_name, p_supplier_phone, v_product.category, v_product.type, v_product.brand, v_product.model, v_product.item_name,
+    p_quantity, p_buying_price, v_product.selling_price, p_quantity * p_buying_price, p_payment_source, coalesce(p_note, ''),
+    p_created_by, now()
+  );
+
+  -- Update inventory
+  insert into public.inventory(
+    category, type, brand, model, item_name, imei, buying_price, selling_price, quantity, min_stock, supplier, note, created_by, created_by_name
+  )
+  values (
+    v_product.category, v_product.type, v_product.brand, v_product.model, v_product.item_name, coalesce(p_imei, ''),
+    p_buying_price, v_product.selling_price, p_quantity, v_product.min_stock, p_supplier_name, coalesce(p_note, ''),
+    p_created_by, p_created_by_name
+  )
+  on conflict (brand, model, item_name, imei)
+  do update set
+    quantity = public.inventory.quantity + EXCLUDED.quantity,
+    buying_price = EXCLUDED.buying_price,
+    selling_price = EXCLUDED.selling_price,
+    supplier = EXCLUDED.supplier;
+
+  -- Add to cash/account ledger
+  if p_payment_source = 'cash' then
+    insert into public.cash_ledger(type, category, amount, note, created_by, created_by_name)
+    values ('expense', 'purchase', p_quantity * p_buying_price, 'Purchase ' || v_purchase_no || ' (' || v_product.item_name || ')', p_created_by, p_created_by_name);
+  else
+    insert into public.account_ledger(type, category, amount, note, created_by, created_by_name)
+    values ('expense', 'purchase', p_quantity * p_buying_price, 'Purchase ' || v_purchase_no || ' (' || v_product.item_name || ')', p_created_by, p_created_by_name);
+  end if;
+
+  return v_purchase_no;
+end;
+$$;
 
 notify pgrst, 'reload schema';
 

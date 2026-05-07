@@ -3,12 +3,12 @@ import Button from "../components/Button";
 import DataTable from "../components/DataTable";
 import Loader from "../components/Loader";
 import PageSection from "../components/PageSection";
-import StatusBadge from "../components/StatusBadge";
-import { addInventoryItem, deleteRecord, updateInventoryItem } from "../supabase/database";
+import { deleteRecord } from "../supabase/database";
 import { useAuth } from "../hooks/useAuth";
 import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
-import { inventoryCategories, inventoryStatuses } from "../utils/constants";
+import { inventoryCategories } from "../utils/constants";
 import { formatCurrency, formatDate } from "../utils/format";
+import { supabase } from "../supabase/client";
 
 const blankForm = {
   category: "new_mobile",
@@ -16,37 +16,29 @@ const blankForm = {
   brand: "",
   model: "",
   itemName: "",
-  serialNumber: "",
-  buyingPrice: "",
   sellingPrice: "",
-  quantity: 1,
   minStock: "",
-  supplier: "",
-  status: "available",
   note: "",
 };
 
 export default function InventoryPage({ readOnly = false }) {
   const { user } = useAuth();
-  const inventory = useFirestoreCollection("inventory", { orderBy: { field: "createdAt", direction: "desc" } });
+  const products = useFirestoreCollection("product_master", { orderBy: { field: "createdAt", direction: "desc" } });
   const [form, setForm] = useState(blankForm);
   const [editingId, setEditingId] = useState("");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
-  const typeSuggestions = useMemo(() => [...new Set(inventory.data.map((item) => item.type).filter(Boolean))], [inventory.data]);
-  const brandSuggestions = useMemo(() => [...new Set(inventory.data.map((item) => item.brand).filter(Boolean))], [inventory.data]);
-  const modelSuggestions = useMemo(() => [...new Set(inventory.data.map((item) => item.model).filter(Boolean))], [inventory.data]);
 
   const visibleRows = useMemo(
     () =>
-      inventory.data.filter((item) => {
+      products.data.filter((item) => {
         const matchesFilter = filter === "all" ? true : item.category === filter;
-        const needle = `${item.itemName} ${item.imei || ""} ${item.brand || ""} ${item.model || ""}`.toLowerCase();
+        const needle = `${item.itemName} ${item.brand || ""} ${item.model || ""}`.toLowerCase();
         return matchesFilter && needle.includes(search.toLowerCase());
       }),
-    [filter, inventory.data, search],
+    [filter, products.data, search],
   );
 
   function resetForm() {
@@ -62,13 +54,8 @@ export default function InventoryPage({ readOnly = false }) {
       brand: row.brand || "",
       model: row.model || "",
       itemName: row.itemName || "",
-      serialNumber: row.serialNumber || "",
-      buyingPrice: row.buyingPrice ?? "",
       sellingPrice: row.sellingPrice ?? "",
-      quantity: row.quantity ?? 1,
       minStock: row.minStock ?? "",
-      supplier: row.supplier || "",
-      status: row.status || "available",
       note: row.note || "",
     });
   }
@@ -76,15 +63,27 @@ export default function InventoryPage({ readOnly = false }) {
   async function handleSubmit(event) {
     event.preventDefault();
     setSubmitting(true);
+    setMessage("");
     try {
-      if (editingId) {
-        await updateInventoryItem(editingId, form);
-        setMessage("Inventory item updated.");
-      } else {
-        await addInventoryItem(form, user);
-        setMessage("Inventory item added.");
-      }
+      const { data, error } = await supabase.rpc("create_or_update_product", {
+        p_id: editingId || null,
+        p_category: form.category,
+        p_type: form.type,
+        p_brand: form.brand,
+        p_model: form.model,
+        p_item_name: form.itemName,
+        p_selling_price: Number(form.sellingPrice || 0),
+        p_min_stock: Number(form.minStock || 0),
+        p_note: form.note
+      });
+
+      if (error) throw error;
+      
+      setMessage(editingId ? "Product updated." : "New product added to master list.");
       resetForm();
+    } catch (err) {
+      console.error(err);
+      setMessage("Error: " + err.message);
     } finally {
       setSubmitting(false);
     }
@@ -92,17 +91,18 @@ export default function InventoryPage({ readOnly = false }) {
 
   async function handleDelete(id) {
     if (user.role !== "admin") return;
-    await deleteRecord("inventory", id);
+    if (!confirm("Are you sure you want to delete this product from master list?")) return;
+    await deleteRecord("product_master", id);
   }
 
-  if (inventory.loading) {
-    return <Loader text="Loading inventory..." />;
+  if (products.loading) {
+    return <Loader text="Loading product master list..." />;
   }
 
   return (
     <div className="list-stack">
       {!readOnly ? (
-        <PageSection title={editingId ? "Edit Stock Item" : "Add Stock Item"} subtitle="Track mobiles, accessories, spare parts, and old phones">
+        <PageSection title={editingId ? "Edit Master Product" : "Add New Product to Master"} subtitle="Define product details here. Stock quantity is added via Purchases page.">
           <form className="list-stack" onSubmit={handleSubmit}>
             <div className="form-grid">
               <div className="field">
@@ -117,72 +117,38 @@ export default function InventoryPage({ readOnly = false }) {
               </div>
               <div className="field">
                 <label>Type</label>
-                <input list="inventory-type-options" value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))} placeholder="mobile, charger, display..." />
+                <input value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))} placeholder="mobile, charger, display..." />
               </div>
               <div className="field">
                 <label>Brand</label>
-                <input list="inventory-brand-options" value={form.brand} onChange={(event) => setForm((current) => ({ ...current, brand: event.target.value }))} placeholder="Samsung, Vivo, Apple..." />
+                <input value={form.brand} onChange={(event) => setForm((current) => ({ ...current, brand: event.target.value }))} placeholder="Samsung, Vivo, Apple..." />
               </div>
               <div className="field">
                 <label>Model</label>
-                <input list="inventory-model-options" value={form.model} onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))} placeholder="A15, Y21, iPhone 13..." />
+                <input value={form.model} onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))} placeholder="A15, Y21, iPhone 13..." />
               </div>
               <div className="field">
                 <label>Item Name</label>
                 <input value={form.itemName} onChange={(event) => setForm((current) => ({ ...current, itemName: event.target.value }))} placeholder="Samsung A15 128GB" required />
               </div>
               <div className="field">
-                <label>Serial Number</label>
-                <input value={form.serialNumber} onChange={(event) => setForm((current) => ({ ...current, serialNumber: event.target.value }))} placeholder="Serial or barcode number" />
-              </div>
-              <div className="field">
-                <label>Buying Price</label>
-                <input type="number" min="0" value={form.buyingPrice} onChange={(event) => setForm((current) => ({ ...current, buyingPrice: event.target.value }))} placeholder="Buying price" />
-              </div>
-              <div className="field">
                 <label>Selling Price</label>
-                <input type="number" min="0" value={form.sellingPrice} onChange={(event) => setForm((current) => ({ ...current, sellingPrice: event.target.value }))} placeholder="Selling price" />
+                <input type="number" min="0" value={form.sellingPrice} onChange={(event) => setForm((current) => ({ ...current, sellingPrice: event.target.value }))} placeholder="Default selling price" />
               </div>
               <div className="field">
-                <label>Quantity</label>
-                <input type="number" min="0" value={form.quantity} onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))} placeholder="Stock quantity" />
-              </div>
-              <div className="field">
-                <label>Min Stock</label>
+                <label>Min Stock Alert</label>
                 <input type="number" min="0" value={form.minStock} onChange={(event) => setForm((current) => ({ ...current, minStock: event.target.value }))} placeholder="Low stock alert qty" />
-              </div>
-              <div className="field">
-                <label>Supplier</label>
-                <input value={form.supplier} onChange={(event) => setForm((current) => ({ ...current, supplier: event.target.value }))} placeholder="Supplier or distributor name" />
-              </div>
-              <div className="field">
-                <label>Status</label>
-                <select value={form.status} onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}>
-                  {inventoryStatuses.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
               </div>
             </div>
             <div className="field">
-              <label>Note</label>
-              <textarea value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="Warranty, color, storage, or purchase note" />
+              <label>Product Note</label>
+              <textarea value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="Warranty terms, color options, or general notes" />
             </div>
-            <datalist id="inventory-type-options">
-              {typeSuggestions.map((option) => <option key={option} value={option} />)}
-            </datalist>
-            <datalist id="inventory-brand-options">
-              {brandSuggestions.map((option) => <option key={option} value={option} />)}
-            </datalist>
-            <datalist id="inventory-model-options">
-              {modelSuggestions.map((option) => <option key={option} value={option} />)}
-            </datalist>
-            {message ? <div className="badge success">{message}</div> : null}
+            
+            {message ? <div className={`badge ${message.startsWith("Error") ? "danger" : "success"}`}>{message}</div> : null}
             <div className="topbar-actions">
               <Button type="submit" disabled={submitting}>
-                {submitting ? "Saving..." : editingId ? "Update Item" : "Add Item"}
+                {submitting ? "Saving..." : editingId ? "Update Product" : "Save to Master List"}
               </Button>
               {editingId ? (
                 <Button type="button" variant="secondary" onClick={resetForm}>
@@ -194,14 +160,14 @@ export default function InventoryPage({ readOnly = false }) {
         </PageSection>
       ) : null}
 
-      <PageSection title="Current Inventory" subtitle="Search by name and filter by category">
+      <PageSection title="Master Product List" subtitle="Search and manage your product catalog">
         <div className="form-grid" style={{ marginBottom: 16 }}>
           <div className="field">
-            <label>Search</label>
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="iPhone, charger..." />
+            <label>Search Products</label>
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name, brand, model..." />
           </div>
           <div className="field">
-            <label>Category</label>
+            <label>Filter Category</label>
             <select value={filter} onChange={(event) => setFilter(event.target.value)}>
               <option value="all">All Categories</option>
               {inventoryCategories.map((category) => (
@@ -216,12 +182,12 @@ export default function InventoryPage({ readOnly = false }) {
         <DataTable
           rows={visibleRows}
           columns={[
-            { key: "itemName", label: "Item" },
+            { key: "itemName", label: "Item Name" },
+            { key: "brand", label: "Brand" },
+            { key: "model", label: "Model" },
             { key: "category", label: "Category" },
-            { key: "quantity", label: "Qty" },
-            { key: "buyingPrice", label: "Buy", render: (row) => formatCurrency(row.buyingPrice) },
-            { key: "sellingPrice", label: "Sell", render: (row) => formatCurrency(row.sellingPrice) },
-            { key: "status", label: "Status", render: (row) => <StatusBadge value={row.status} /> },
+            { key: "sellingPrice", label: "Sale Price", render: (row) => formatCurrency(row.sellingPrice) },
+            { key: "minStock", label: "Min Stock" },
             { key: "createdAt", label: "Added", render: (row) => formatDate(row.createdAt) },
             {
               key: "actions",

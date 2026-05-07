@@ -442,6 +442,8 @@ export async function addLedgerEntry(ledgerName, payload, currentUser) {
     createdBy: currentUser.uid,
     createdByName: currentUser.name,
   });
+}
+
 export async function createOldMobilePurchase(payload, currentUser) {
   const { error } = await supabase.rpc("create_old_mobile_purchase", {
     p_customer_name: payload.customerName,
