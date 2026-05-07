@@ -465,6 +465,12 @@ export async function createOldMobilePurchase(payload, currentUser) {
 }
 
 export async function createPurchaseEntry(payload, currentUser) {
+  // Ensure supplier is in customers (parties) table
+  await supabase.rpc('ensure_customer', { 
+    p_name: payload.supplierName, 
+    p_phone: payload.supplierPhone 
+  });
+
   const purchaseNo = payload.purchaseNo || `PUR-${formatDateKey(new Date())}-${Math.floor(Date.now() / 1000).toString().slice(-4)}`;
   const totalAmount = Number(payload.quantity || 0) * Number(payload.buyingPrice || 0);
 

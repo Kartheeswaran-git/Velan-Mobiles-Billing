@@ -7,6 +7,7 @@ import { createMoneyTransfer } from "../supabase/database";
 import { useAuth } from "../hooks/useAuth";
 import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
 import { computeLedgerSummary, formatCurrency, formatDate } from "../utils/format";
+import Autocomplete from "../components/Autocomplete";
 
 const blankTransfer = {
   customerName: "",
@@ -89,15 +90,43 @@ export default function MoneyTransferPage() {
         {transfers.error ? <div className="badge danger">{transfers.error}</div> : null}
         <form className="list-stack" onSubmit={handleSubmit}>
           <div className="form-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
-            <div className="field">
-              <label>Customer Name</label>
-              <input value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} placeholder="Customer full name" />
-            </div>
-            <div className="field">
-              <label>Customer Phone</label>
-              <input value={form.customerPhone} onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))} placeholder="Enter phone to auto-fill" />
-              {matchedCustomer ? <span className="field-hint">Customer details auto-filled from saved party.</span> : null}
-            </div>
+            <Autocomplete
+              label="Customer Name"
+              placeholder="Customer full name"
+              value={form.customerName}
+              suggestions={customers.data.map(c => c.name)}
+              onChange={(e) => setForm(curr => ({ ...curr, customerName: e.target.value }))}
+              onSelect={(name) => {
+                const found = customers.data.find(c => c.name === name);
+                if (found) {
+                  setForm(curr => ({
+                    ...curr,
+                    customerName: found.name,
+                    customerPhone: found.phone || "",
+                    aadharNo: found.aadharNo || ""
+                  }));
+                }
+              }}
+            />
+            <Autocomplete
+              label="Customer Phone"
+              placeholder="Enter phone to auto-fill"
+              value={form.customerPhone}
+              suggestions={customers.data.map(c => c.phone).filter(Boolean)}
+              onChange={(e) => setForm(curr => ({ ...curr, customerPhone: e.target.value }))}
+              onSelect={(phone) => {
+                const found = customers.data.find(c => normalizePhone(c.phone) === normalizePhone(phone));
+                if (found) {
+                  setForm(curr => ({
+                    ...curr,
+                    customerName: found.name || "",
+                    customerPhone: found.phone,
+                    aadharNo: found.aadharNo || ""
+                  }));
+                }
+              }}
+            />
+            {matchedCustomer ? <span className="field-hint" style={{ marginTop: -14, marginBottom: 10, fontSize: '0.8rem', color: 'var(--success)' }}>Customer details auto-filled.</span> : null}
             <div className="field">
               <label>Aadhaar No</label>
               <input value={form.aadharNo} onChange={(event) => setForm((current) => ({ ...current, aadharNo: event.target.value }))} placeholder="Aadhaar number optional" />

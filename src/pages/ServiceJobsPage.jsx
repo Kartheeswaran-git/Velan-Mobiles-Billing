@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Autocomplete from "../components/Autocomplete";
 import Button from "../components/Button";
 import DataTable from "../components/DataTable";
 import Loader from "../components/Loader";
@@ -134,7 +135,9 @@ export default function ServiceJobsPage() {
   const normalizePhone = (value) => String(value || "").replace(/\D/g, "");
   const matchedCustomer = customers.data.find((c) => {
     const typedPhone = normalizePhone(form.customerPhone);
-    return typedPhone.length >= 5 && normalizePhone(c.phone) === typedPhone;
+    if (typedPhone.length >= 5 && normalizePhone(c.phone) === typedPhone) return true;
+    if (form.customerName.length >= 3 && c.name.toLowerCase().trim() === form.customerName.toLowerCase().trim()) return true;
+    return false;
   });
 
   useEffect(() => {
@@ -142,6 +145,7 @@ export default function ServiceJobsPage() {
     setForm((current) => ({
       ...current,
       customerName: matchedCustomer.name || current.customerName,
+      customerPhone: matchedCustomer.phone || current.customerPhone,
     }));
   }, [matchedCustomer?.id]);
 
@@ -232,15 +236,43 @@ export default function ServiceJobsPage() {
           <PageSection title="New Service Job" subtitle="Receive phone service requests">
             <form className="list-stack" onSubmit={handleSubmit}>
               <div className="form-grid">
-                <div className="field">
-                  <label>Customer Name</label>
-                  <input value={form.customerName} onChange={(event) => setForm((current) => ({ ...current, customerName: event.target.value }))} placeholder="Customer full name" required />
-                </div>
-                <div className="field">
-                  <label>Customer Phone</label>
-                  <input value={form.customerPhone} onChange={(event) => setForm((current) => ({ ...current, customerPhone: event.target.value }))} placeholder="Customer mobile number" required />
-                  {matchedCustomer ? <span className="field-hint">Customer details auto-filled.</span> : null}
-                </div>
+                  <Autocomplete
+                    label="Customer Name"
+                    placeholder="Search by name..."
+                    value={form.customerName}
+                    suggestions={customers.data.map(c => c.name)}
+                    onChange={(e) => setForm(curr => ({ ...curr, customerName: e.target.value }))}
+                    onSelect={(name) => {
+                      const found = customers.data.find(c => c.name === name);
+                      if (found) {
+                        setForm(curr => ({
+                          ...curr,
+                          customerName: found.name,
+                          customerPhone: found.phone || ""
+                        }));
+                      }
+                    }}
+                    required
+                  />
+                  <Autocomplete
+                    label="Customer Phone"
+                    placeholder="Customer mobile number"
+                    value={form.customerPhone}
+                    suggestions={customers.data.map(c => c.phone).filter(Boolean)}
+                    onChange={(e) => setForm(curr => ({ ...curr, customerPhone: e.target.value }))}
+                    onSelect={(phone) => {
+                      const found = customers.data.find(c => normalizePhone(c.phone) === normalizePhone(phone));
+                      if (found) {
+                        setForm(curr => ({
+                          ...curr,
+                          customerName: found.name || "",
+                          customerPhone: found.phone
+                        }));
+                      }
+                    }}
+                    required
+                  />
+                  {matchedCustomer ? <span className="field-hint" style={{ marginTop: -14, marginBottom: 10, fontSize: '0.8rem', color: 'var(--success)' }}>Customer details auto-filled.</span> : null}
                 <div className="field">
                   <label>Box Number</label>
                   <input value={form.boxNo} onChange={(event) => setForm((current) => ({ ...current, boxNo: event.target.value }))} placeholder="BX-001 (Optional)" />

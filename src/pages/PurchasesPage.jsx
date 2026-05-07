@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Autocomplete from "../components/Autocomplete";
 import Button from "../components/Button";
 import DataTable from "../components/DataTable";
 import Loader from "../components/Loader";
@@ -29,9 +30,24 @@ export default function PurchasesPage() {
   const { user } = useAuth();
   const purchases = useFirestoreCollection("purchase_entries", { orderBy: { field: "createdAt", direction: "desc" } });
   const inventory = useFirestoreCollection("inventory", { orderBy: { field: "createdAt", direction: "desc" } });
+  const customers = useFirestoreCollection("customers", { orderBy: { field: "createdAt", direction: "desc" } });
   const [form, setForm] = useState(blankPurchase);
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState("");
+
+  const matchedSupplier = customers.data.find((c) => 
+    form.supplierName.length >= 3 && 
+    c.name.toLowerCase().trim() === form.supplierName.toLowerCase().trim()
+  );
+
+  useEffect(() => {
+    if (!matchedSupplier || editingId) return;
+    setForm((current) => ({
+      ...current,
+      supplierPhone: matchedSupplier.phone || current.supplierPhone,
+    }));
+  }, [matchedSupplier?.id, editingId]);
+
   const typeSuggestions = [...new Set(inventory.data.map((item) => item.type).filter(Boolean))];
   const brandSuggestions = [...new Set(inventory.data.map((item) => item.brand).filter(Boolean))];
   const modelSuggestions = [...new Set(inventory.data.map((item) => item.model).filter(Boolean))];
@@ -61,8 +77,43 @@ export default function PurchasesPage() {
       <PageSection title={editingId ? "Edit Purchase Entry" : "New Purchase Entry"} subtitle="Record stock purchases and auto-add them to inventory">
         <form className="list-stack" onSubmit={handleSubmit}>
           <div className="form-grid">
-            <div className="field"><label>Supplier Name</label><input value={form.supplierName} onChange={(event) => setForm((current) => ({ ...current, supplierName: event.target.value }))} placeholder="Distributor or shop name" required /></div>
-            <div className="field"><label>Supplier Phone</label><input value={form.supplierPhone} onChange={(event) => setForm((current) => ({ ...current, supplierPhone: event.target.value }))} placeholder="Supplier mobile number" /></div>
+            <Autocomplete
+              label="Supplier Name"
+              placeholder="Distributor or shop name"
+              value={form.supplierName}
+              suggestions={customers.data.map(c => c.name)}
+              hint={matchedSupplier && !editingId ? "Supplier auto-filled" : null}
+              onChange={(e) => setForm(curr => ({ ...curr, supplierName: e.target.value }))}
+              onSelect={(name) => {
+                const found = customers.data.find(c => c.name === name);
+                if (found) {
+                  setForm(curr => ({
+                    ...curr,
+                    supplierName: found.name,
+                    supplierPhone: found.phone || ""
+                  }));
+                }
+              }}
+              required
+            />
+            <Autocomplete
+              label="Supplier Phone"
+              placeholder="Supplier mobile number"
+              value={form.supplierPhone}
+              suggestions={customers.data.map(c => c.phone).filter(Boolean)}
+              hint={matchedSupplier && !editingId ? "Auto-filled" : null}
+              onChange={(e) => setForm(curr => ({ ...curr, supplierPhone: e.target.value }))}
+              onSelect={(phone) => {
+                const found = customers.data.find(c => c.phone === phone);
+                if (found) {
+                  setForm(curr => ({
+                    ...curr,
+                    supplierName: found.name || "",
+                    supplierPhone: found.phone
+                  }));
+                }
+              }}
+            />
             <div className="field"><label>Category</label><select value={form.category} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value }))}>{inventoryCategories.filter((item) => item !== "old_mobile").map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
             <div className="field"><label>Type</label><input list="purchase-type-options" value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))} placeholder="mobile, accessory, spare..." /></div>
             <div className="field"><label>Brand</label><input list="purchase-brand-options" value={form.brand} onChange={(event) => setForm((current) => ({ ...current, brand: event.target.value }))} placeholder="Samsung, Oppo, Apple..." /></div>
@@ -75,6 +126,7 @@ export default function PurchasesPage() {
             <div className="field"><label>Payment Source</label><select value={form.paymentSource} onChange={(event) => setForm((current) => ({ ...current, paymentSource: event.target.value }))}><option value="cash">cash</option><option value="account">account</option></select></div>
             <div className="field"><label>Note</label><input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="Invoice no, warranty, batch..." /></div>
           </div>
+          <datalist id="supplier-options">{[...new Set(customers.data.map(c => c.name))].map((name) => <option key={name} value={name} />)}</datalist>
           <datalist id="purchase-type-options">{typeSuggestions.map((option) => <option key={option} value={option} />)}</datalist>
           <datalist id="purchase-brand-options">{brandSuggestions.map((option) => <option key={option} value={option} />)}</datalist>
           <datalist id="purchase-model-options">{modelSuggestions.map((option) => <option key={option} value={option} />)}</datalist>

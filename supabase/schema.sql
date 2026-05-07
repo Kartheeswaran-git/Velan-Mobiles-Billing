@@ -346,6 +346,51 @@ begin
 end;
 $$;
 
+create or replace function public.ensure_customer(
+  p_name text,
+  p_phone text,
+  p_address text default ''
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+begin
+  if p_name is null or p_name = '' then
+    return null;
+  end if;
+
+  -- Try to find by phone first
+  if p_phone is not null and p_phone <> '' then
+    select id into v_id from public.customers where phone = p_phone limit 1;
+  end if;
+
+  -- If not found by phone, try by name
+  if v_id is null then
+    select id into v_id from public.customers where lower(trim(name)) = lower(trim(p_name)) limit 1;
+  end if;
+
+  if v_id is null then
+    insert into public.customers(name, phone, address)
+    values (p_name, p_phone, coalesce(p_address, ''))
+    returning id into v_id;
+  else
+    -- Update existing record with latest details
+    update public.customers
+    set 
+      name = coalesce(p_name, name),
+      phone = coalesce(p_phone, phone),
+      address = case when p_address <> '' then p_address else address end
+    where id = v_id;
+  end if;
+
+  return v_id;
+end;
+$$;
+
 create or replace function public.create_bill(
   p_customer_id uuid,
   p_customer_name text,
@@ -382,14 +427,7 @@ begin
 
   select name into v_actor_name from public.users where id = v_actor_id;
   v_bill_no := public.next_document_number('bill_no', 'BILL');
-
-  if p_customer_id is null then
-    insert into public.customers(name, phone, address)
-    values (p_customer_name, p_customer_phone, coalesce(p_customer_address, ''))
-    returning id into v_customer_id;
-  else
-    v_customer_id := p_customer_id;
-  end if;
+  v_customer_id := public.ensure_customer(p_customer_name, p_customer_phone, p_customer_address);
 
   for item in select * from jsonb_array_elements(p_items)
   loop
@@ -483,6 +521,7 @@ begin
 
   select name into v_actor_name from public.users where id = v_actor_id;
   v_job_no := public.next_document_number('job_no', 'JOB');
+  perform public.ensure_customer(p_customer_name, p_customer_phone);
   
   if p_box_no is null or p_box_no = '' then
     v_box_no := public.next_document_number('box_no', 'BX');

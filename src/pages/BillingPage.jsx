@@ -9,6 +9,7 @@ import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
 import { createBill, fetchSingle, updateBillAdmin } from "../supabase/database";
 import { calculateBillSummary, formatCurrency } from "../utils/format";
 import { printBill } from "../utils/printBill";
+import Autocomplete from "../components/Autocomplete";
 
 const initialCustomer = { name: "", phone: "", address: "" };
 const initialLine = { inventoryId: "", itemName: "", category: "", imei: "", quantity: 1, price: "", total: "" };
@@ -66,7 +67,11 @@ export default function BillingPage() {
   const normalizePhone = (value) => String(value || "").replace(/\D/g, "");
   const matchedCustomer = customers.data.find((c) => {
     const typedPhone = normalizePhone(customer.phone);
-    return typedPhone.length >= 5 && normalizePhone(c.phone) === typedPhone;
+    if (typedPhone.length >= 5 && normalizePhone(c.phone) === typedPhone) return true;
+    
+    if (customer.name.length >= 3 && c.name.toLowerCase().trim() === customer.name.toLowerCase().trim()) return true;
+    
+    return false;
   });
 
   useEffect(() => {
@@ -74,6 +79,7 @@ export default function BillingPage() {
     setCustomer((current) => ({
       ...current,
       name: matchedCustomer.name || current.name,
+      phone: matchedCustomer.phone || current.phone,
       address: matchedCustomer.address || current.address,
     }));
   }, [matchedCustomer?.id, editBillId]);
@@ -318,15 +324,43 @@ export default function BillingPage() {
                   <span className="muted">Quick entry for walk-in billing</span>
                 </div>
                 <div className="form-grid">
-                  <div className="field">
-                    <label>Customer Name</label>
-                    <input value={customer.name} onChange={(event) => setCustomer((current) => ({ ...current, name: event.target.value }))} placeholder="Customer full name" required />
-                  </div>
-                  <div className="field">
-                    <label>Phone</label>
-                    <input value={customer.phone} onChange={(event) => setCustomer((current) => ({ ...current, phone: event.target.value }))} placeholder="Customer mobile number" required />
-                    {matchedCustomer && !editBillId ? <span className="field-hint">Customer details auto-filled.</span> : null}
-                  </div>
+                    <Autocomplete
+                      label="Customer Name"
+                      placeholder="Type name to search..."
+                      value={customer.name}
+                      suggestions={customers.data.map(c => c.name)}
+                      onChange={(e) => setCustomer(curr => ({ ...curr, name: e.target.value }))}
+                      onSelect={(name) => {
+                        const found = customers.data.find(c => c.name === name);
+                        if (found) {
+                          setCustomer({
+                            name: found.name,
+                            phone: found.phone || "",
+                            address: found.address || ""
+                          });
+                        }
+                      }}
+                      required
+                    />
+                    <Autocomplete
+                      label="Phone"
+                      placeholder="Customer mobile number"
+                      value={customer.phone}
+                      suggestions={customers.data.map(c => c.phone).filter(Boolean)}
+                      hint={matchedCustomer && !editBillId ? "Customer auto-filled" : null}
+                      onChange={(e) => setCustomer(curr => ({ ...curr, phone: e.target.value }))}
+                      onSelect={(phone) => {
+                        const found = customers.data.find(c => normalizePhone(c.phone) === normalizePhone(phone));
+                        if (found) {
+                          setCustomer({
+                            name: found.name || "",
+                            phone: found.phone,
+                            address: found.address || ""
+                          });
+                        }
+                      }}
+                      required
+                    />
                   <div className="field">
                     <label>Address (Optional)</label>
                     <input value={customer.address} onChange={(event) => setCustomer((current) => ({ ...current, address: event.target.value }))} placeholder="Street, area, city optional" />
