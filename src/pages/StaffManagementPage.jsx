@@ -20,12 +20,20 @@ export default function StaffManagementPage() {
   const users = useFirestoreCollection("users", { orderBy: { field: "createdAt", direction: "desc" } });
   const [form, setForm] = useState(blankUser);
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
   async function handleSubmit(event) {
     event.preventDefault();
-    await createOrUpdateUserProfile(form.uid, form);
-    setMessage("Staff profile saved. Create the login user in Firebase Authentication if not already created.");
-    setForm(blankUser);
+    setError("");
+    setMessage("");
+    try {
+      if (!form.uid) throw new Error("User UID is required");
+      await createOrUpdateUserProfile(form.uid, form);
+      setMessage("Staff profile saved successfully. Ensure this UID matches the user in Supabase Authentication.");
+      setForm(blankUser);
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   if (users.loading) {
@@ -34,9 +42,17 @@ export default function StaffManagementPage() {
 
   return (
     <div className="list-stack">
-      <PageSection title="Add or Update Staff" subtitle="Profiles are stored in the Supabase users table">
+      <PageSection title="Add or Update Staff" subtitle="Important: You must first create the user in Supabase Auth, then paste their UID here.">
         <form className="form-grid" onSubmit={handleSubmit}>
-          <div className="field"><label>User UID</label><input value={form.uid} onChange={(event) => setForm((current) => ({ ...current, uid: event.target.value }))} placeholder="Supabase auth user UUID" required /></div>
+          <div className="field">
+            <label>User UID</label>
+            <input 
+              value={form.uid} 
+              onChange={(event) => setForm((current) => ({ ...current, uid: event.target.value }))} 
+              placeholder="Supabase auth user UUID" 
+              required 
+            />
+          </div>
           <div className="field"><label>Name</label><input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Staff full name" required /></div>
           <div className="field"><label>Phone</label><input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} placeholder="Staff mobile number" /></div>
           <div className="field">
@@ -55,10 +71,16 @@ export default function StaffManagementPage() {
           </div>
           <div className="field" style={{ justifyContent: "flex-end" }}>
             <label>&nbsp;</label>
-            <Button type="submit">Save Staff</Button>
+            <div className="topbar-actions">
+              <Button type="submit">Save Staff</Button>
+              {form.uid ? (
+                <Button type="button" variant="secondary" onClick={() => setForm(blankUser)}>Clear</Button>
+              ) : null}
+            </div>
           </div>
         </form>
         {message ? <div className="badge success" style={{ marginTop: 16 }}>{message}</div> : null}
+        {error ? <div className="badge danger" style={{ marginTop: 16 }}>{error}</div> : null}
       </PageSection>
 
       <PageSection title="Staff List" subtitle="Admin can review current user profiles">
@@ -71,6 +93,28 @@ export default function StaffManagementPage() {
             { key: "active", label: "Status", render: (row) => <StatusBadge value={row.active ? "active" : "inactive"} /> },
             { key: "uid", label: "UID" },
             { key: "createdAt", label: "Created", render: (row) => formatDate(row.createdAt) },
+            {
+              key: "action",
+              label: "Action",
+              render: (row) => (
+                <Button 
+                  type="button" 
+                  variant="secondary" 
+                  onClick={() => {
+                    setForm({
+                      uid: row.id || row.uid || "",
+                      name: row.name || "",
+                      phone: row.phone || "",
+                      role: row.role || "staff",
+                      active: row.active ?? true
+                    });
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                >
+                  Edit
+                </Button>
+              )
+            }
           ]}
         />
       </PageSection>

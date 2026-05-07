@@ -68,8 +68,9 @@ export async function fetchSingle(collectionName, id) {
 }
 
 export async function createOrUpdateUserProfile(uid, data) {
+  const { uid: _, ...rest } = data;
   const payload = snakeizeRecord({
-    ...data,
+    ...rest,
     id: uid,
   });
   const { error } = await supabase.from("users").upsert(payload, { onConflict: "id" });
