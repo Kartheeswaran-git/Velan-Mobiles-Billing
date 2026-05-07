@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Button from "../components/Button";
 import DataTable from "../components/DataTable";
 import Loader from "../components/Loader";
 import PageSection from "../components/PageSection";
-import { createMoneyTransfer } from "../supabase/database";
+import { createMoneyTransfer, deleteMoneyTransfer, updateRecord } from "../supabase/database";
 import { useAuth } from "../hooks/useAuth";
 import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
 import { computeLedgerSummary, formatCurrency, formatDate } from "../utils/format";
@@ -30,8 +30,21 @@ export default function MoneyTransferPage() {
   const cash = useFirestoreCollection("cash_ledger", { orderBy: { field: "createdAt", direction: "desc" } });
   const account = useFirestoreCollection("account_ledger", { orderBy: { field: "createdAt", direction: "desc" } });
   const [form, setForm] = useState(blankTransfer);
+  const [editingId, setEditingId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+  const [search, setSearch] = useState("");
+
+  const filteredTransfers = useMemo(() => {
+    if (!search) return transfers.data;
+    const s = search.toLowerCase();
+    return transfers.data.filter(t => 
+      t.transferNo?.toLowerCase().includes(s) ||
+      t.customerName?.toLowerCase().includes(s) ||
+      t.customerPhone?.toLowerCase().includes(s) ||
+      t.aadharNo?.toLowerCase().includes(s)
+    );
+  }, [transfers.data, search]);
   const totalReceived = Number(form.transferAmount || 0) + Number(form.commission || 0);
   const totalReceivedDisplay = form.transferAmount === "" && form.commission === "" ? "" : totalReceived;
   const matchedCustomer = customers.data.find((customer) => {
@@ -56,12 +69,43 @@ export default function MoneyTransferPage() {
     setSubmitting(true);
     setMessage("");
     try {
-      const saved = await createMoneyTransfer(form, user);
-      setMessage(`Money transfer saved: ${saved.transferNo}`);
+      if (editingId) {
+        await updateRecord("money_transfers", editingId, form);
+        setMessage("Transfer record updated. (Note: Ledger balances were not modified)");
+      } else {
+        const saved = await createMoneyTransfer(form, user);
+        setMessage(`Money transfer saved: ${saved.transferNo}`);
+      }
       setForm(blankTransfer);
+      setEditingId("");
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function handleDelete(id) {
+    if (!confirm("Are you sure? This will also remove the associated ledger entries and restore balances.")) return;
+    setSubmitting(true);
+    try {
+      await deleteMoneyTransfer(id);
+      setMessage("Transfer and ledger entries deleted.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function startEdit(row) {
+    setEditingId(row.id);
+    setForm({
+      customerName: row.customerName || "",
+      customerPhone: row.customerPhone || "",
+      aadharNo: row.aadharNo || "",
+      transferType: row.transferType,
+      transferAmount: row.transferAmount,
+      commission: row.commission,
+      note: row.note || "",
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   if (transfers.loading || customers.loading || cash.loading || account.loading) {
@@ -72,7 +116,7 @@ export default function MoneyTransferPage() {
   const accountSummary = computeLedgerSummary(account.data);
 
   return (
-    <div className="list-stack">
+    <div className="list-stack" style={{ zoom: '95%', paddingRight: '24px' }}>
       <div className="dashboard-overview-grid">
         <div className="overview-card overview-card-success">
           <div className="overview-card-label">Cash in Hand</div>
@@ -170,22 +214,72 @@ export default function MoneyTransferPage() {
             </div>
           </div>
           {message ? <div className="badge success">{message}</div> : null}
-          <Button type="submit" disabled={submitting}>{submitting ? "Saving..." : "Save Customer Transfer"}</Button>
+          <div className="topbar-actions">
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "Processing..." : editingId ? "Update Transfer Record" : "Save Customer Transfer"}
+            </Button>
+            {editingId && (
+              <Button type="button" variant="secondary" onClick={() => { setForm(blankTransfer); setEditingId(""); }}>
+                Cancel Edit
+              </Button>
+            )}
+          </div>
         </form>
       </PageSection>
 
       <PageSection title="Customer Transfer History" subtitle="Customer transfer records and commission earned">
+        <div className="field" style={{ marginBottom: '16px', maxWidth: '400px' }}>
+          <input 
+            placeholder="Search by TXN No, Name, Phone or Aadhaar..." 
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
         <DataTable
-          rows={transfers.data}
+          rows={filteredTransfers}
           columns={[
-            { key: "transferNo", label: "Transfer No" },
+            { 
+              key: "transferNo", 
+              label: "TXN No", 
+              render: (row) => <code style={{ fontSize: '0.8rem', color: 'var(--primary-dark)', fontWeight: 700 }}>{row.transferNo}</code> 
+            },
             { key: "customerName", label: "Customer" },
-            { key: "aadharNo", label: "Aadhaar No" },
-            { key: "transferType", label: "Type", render: (row) => row.transferType === "cash_to_bank" ? "Cash to Bank" : "Bank to Cash" },
-            { key: "transferAmount", label: "Transfer", render: (row) => formatCurrency(row.transferAmount) },
-            { key: "commission", label: "Commission", render: (row) => formatCurrency(row.commission) },
-            { key: "totalReceived", label: "Customer Paid", render: (row) => formatCurrency(row.totalReceived) },
-            { key: "createdAt", label: "Date", render: (row) => formatDate(row.createdAt) },
+            { key: "aadharNo", label: "Aadhaar" },
+            { 
+              key: "transferType", 
+              label: "Type", 
+              render: (row) => (
+                <span className={`badge ${row.transferType === 'cash_to_bank' ? 'success' : 'info'}`} style={{ whiteSpace: 'nowrap' }}>
+                  {row.transferType === "cash_to_bank" ? "Cash ⮕ Bank" : "Bank ⮕ Cash"}
+                </span>
+              ) 
+            },
+            { key: "transferAmount", label: "Transfer", render: (row) => <strong>{formatCurrency(row.transferAmount)}</strong> },
+            { key: "commission", label: "Profit", render: (row) => <span style={{ color: 'var(--success)', fontWeight: 700 }}>{formatCurrency(row.commission)}</span> },
+            { key: "totalReceived", label: "Total Paid", render: (row) => <strong>{formatCurrency(row.totalReceived)}</strong> },
+            { 
+              key: "createdAt", 
+              label: "Date", 
+              render: (row) => (
+                <div style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                  {new Date(row.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })}
+                  <br />
+                  <small className="muted">{new Date(row.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</small>
+                </div>
+              )
+            },
+            ...(user.role === "admin"
+              ? [{
+                key: "actions",
+                label: "Action",
+                render: (row) => (
+                  <div className="topbar-actions" style={{ flexWrap: 'nowrap' }}>
+                    <Button type="button" variant="secondary" onClick={() => startEdit(row)}>Edit</Button>
+                    <Button type="button" variant="danger" onClick={() => handleDelete(row.id)}>Delete</Button>
+                  </div>
+                ),
+              }]
+              : []),
           ]}
         />
       </PageSection>

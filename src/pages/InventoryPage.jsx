@@ -24,8 +24,10 @@ const blankForm = {
 export default function InventoryPage({ readOnly = false }) {
   const { user } = useAuth();
   const products = useFirestoreCollection("product_master", { orderBy: { field: "createdAt", direction: "desc" } });
+  const bills = useFirestoreCollection("bills", { orderBy: { field: "createdAt", direction: "desc" } });
   const [form, setForm] = useState(blankForm);
   const [editingId, setEditingId] = useState("");
+  const [selectedProductId, setSelectedProductId] = useState("");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -78,7 +80,7 @@ export default function InventoryPage({ readOnly = false }) {
       });
 
       if (error) throw error;
-      
+
       setMessage(editingId ? "Product updated." : "New product added to master list.");
       resetForm();
     } catch (err) {
@@ -95,9 +97,40 @@ export default function InventoryPage({ readOnly = false }) {
     await deleteRecord("product_master", id);
   }
 
-  if (products.loading) {
-    return <Loader text="Loading product master list..." />;
+  if (products.loading || bills.loading) {
+    return <Loader text="Loading product master list and sales data..." />;
   }
+
+  const selectedProduct = products.data.find(p => p.id === selectedProductId);
+  const salesChartData = selectedProduct ? (() => {
+    const last30Days = [...Array(30)].map((_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (29 - i));
+      return d.toISOString().split('T')[0];
+    });
+
+    const salesByDate = {};
+    bills.data.forEach(bill => {
+      const date = bill.createdAt.split('T')[0];
+      const items = Array.isArray(bill.items) ? bill.items : [];
+      items.forEach(item => {
+        // Match by name or model/brand
+        const matches = (item.itemName === selectedProduct.itemName) ||
+          (item.model === selectedProduct.model && item.brand === selectedProduct.brand);
+        if (matches) {
+          salesByDate[date] = (salesByDate[date] || 0) + Number(item.quantity || 0);
+        }
+      });
+    });
+
+    return last30Days.map(date => ({
+      date,
+      count: salesByDate[date] || 0,
+      label: new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+    }));
+  })() : [];
+
+  const maxSales = Math.max(...salesChartData.map(d => d.count), 1);
 
   return (
     <div className="list-stack">
@@ -144,7 +177,7 @@ export default function InventoryPage({ readOnly = false }) {
               <label>Product Note</label>
               <textarea value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder="Warranty terms, color options, or general notes" />
             </div>
-            
+
             {message ? <div className={`badge ${message.startsWith("Error") ? "danger" : "success"}`}>{message}</div> : null}
             <div className="topbar-actions">
               <Button type="submit" disabled={submitting}>
@@ -197,6 +230,9 @@ export default function InventoryPage({ readOnly = false }) {
                   "-"
                 ) : (
                   <div className="topbar-actions">
+                    <Button type="button" variant="secondary" onClick={() => setSelectedProductId(row.id)} title="View Sales Chart">
+                      Chart
+                    </Button>
                     <Button type="button" variant="secondary" onClick={() => startEdit(row)}>
                       Edit
                     </Button>
@@ -211,6 +247,45 @@ export default function InventoryPage({ readOnly = false }) {
           ]}
         />
       </PageSection>
+
+      {selectedProduct && (
+        <PageSection
+          title={`Sales Trend: ${selectedProduct.itemName}`}
+          subtitle="Daily sales volume over the last 30 days"
+          actions={<Button variant="secondary" onClick={() => setSelectedProductId("")}>Close Chart</Button>}
+        >
+          <div className="panel" style={{ padding: '32px 24px', background: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '200px', borderBottom: '2px solid var(--border)', paddingBottom: '8px' }}>
+              {salesChartData.map((d, i) => (
+                <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                  <div
+                    style={{
+                      width: '100%',
+                      background: d.count > 0 ? 'var(--primary)' : '#f1f5f9',
+                      height: `${(d.count / maxSales) * 100}%`,
+                      borderRadius: '4px 4px 0 0',
+                      transition: 'height 0.3s ease',
+                      position: 'relative'
+                    }}
+                    title={`${d.count} units sold on ${d.date}`}
+                  >
+                    {d.count > 0 && (
+                      <span style={{ position: 'absolute', top: '-20px', left: '50%', transform: 'translateX(-50%)', fontSize: '10px', fontWeight: 700, color: 'var(--primary-dark)' }}>
+                        {d.count}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', padding: '0 4px' }}>
+              <span className="muted" style={{ fontSize: '11px' }}>{salesChartData[0].label}</span>
+              <span className="muted" style={{ fontSize: '11px' }}>{salesChartData[14].label}</span>
+              <span className="muted" style={{ fontSize: '11px' }}>{salesChartData[29].label}</span>
+            </div>
+          </div>
+        </PageSection>
+      )}
     </div>
   );
 }

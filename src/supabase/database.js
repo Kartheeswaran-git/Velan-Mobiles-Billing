@@ -458,11 +458,64 @@ export async function createOldMobilePurchase(payload, currentUser) {
     p_note: payload.note || "",
     p_created_by: currentUser.id || currentUser.uid,
     p_created_by_name: currentUser.name || "Staff",
+    p_aadhar_no: payload.aadharNo || "",
   });
 
   if (error) {
     throw new Error(error.message);
   }
+}
+
+export async function addOldMobileRepair(inventoryId, amount, note, currentUser) {
+  const { error: repairError } = await supabase
+    .from("old_mobile_repairs")
+    .insert({
+      mobile_id: inventoryId,
+      amount: Number(amount),
+      note: note || "",
+      created_by: currentUser.id || currentUser.uid
+    });
+
+  if (repairError) throw new Error(repairError.message);
+
+  // Fetch all repairs for this mobile and sum them manually to be 100% sure
+  const { data: repairs, error: fetchError } = await supabase
+    .from("old_mobile_repairs")
+    .select("amount")
+    .eq("mobile_id", inventoryId);
+
+  if (fetchError) throw new Error(fetchError.message);
+
+  const total = (repairs || []).reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  
+  // Update inventory cache
+  await supabase
+    .from("inventory")
+    .update({ repair_cost: total })
+    .eq("id", inventoryId);
+
+  // Update matching transaction record if it exists
+  await supabase
+    .from("old_mobile_transactions")
+    .update({ repair_cost: total })
+    .eq("mobile_id", inventoryId)
+    .eq("stage", "purchased");
+}
+
+export async function updateOldMobileExpectedSale(inventoryId, price) {
+  const { error } = await supabase
+    .from("inventory")
+    .update({ selling_price: Number(price || 0) })
+    .eq("id", inventoryId);
+
+  if (error) throw new Error(error.message);
+
+  // Also update transaction record
+  await supabase
+    .from("old_mobile_transactions")
+    .update({ expected_sell_price: Number(price || 0) })
+    .eq("mobile_id", inventoryId)
+    .eq("stage", "purchased");
 }
 
 export async function createPurchaseEntry(payload, currentUser) {
@@ -555,15 +608,14 @@ export async function updatePurchaseEntry(id, payload) {
   });
 }
 
-export async function sellOldMobile({ inventoryId, sellPrice, customerName, customerPhone, paymentType, currentUser }) {
-  const { error } = await supabase.rpc("create_old_mobile_sale", {
+export async function sellOldMobile({ inventoryId, sellPrice, customerName, customerPhone, currentUser }) {
+  const { error } = await supabase.rpc("sell_old_mobile", {
     p_inventory_id: inventoryId,
-    p_customer_name: customerName,
-    p_customer_phone: customerPhone,
     p_sell_price: Number(sellPrice),
-    p_payment_type: paymentType || "cash",
+    p_customer_name: customerName,
+    p_customer_phone: customerPhone || "",
     p_created_by: currentUser.id || currentUser.uid,
-    p_created_by_name: currentUser.name || "Staff"
+    p_created_by_name: currentUser.name || "Staff",
   });
 
   if (error) {
@@ -729,4 +781,18 @@ export async function ensureUserProfile(authUser) {
   }
 
   return camelizeRecord(existing.data);
+}
+
+export async function deleteMoneyTransfer(transferId) {
+  const { data: transfer, error: fetchError } = await supabase.from("money_transfers").select("*").eq("id", transferId).single();
+  if (fetchError) throw new Error(fetchError.message);
+
+  const transferNo = transfer.transfer_no;
+
+  // Delete matching ledger entries to keep balances accurate
+  await supabase.from("cash_ledger").delete().ilike("note", `%${transferNo}%`);
+  await supabase.from("account_ledger").delete().ilike("note", `%${transferNo}%`);
+  
+  // Delete the transfer record
+  await supabase.from("money_transfers").delete().eq("id", transferId);
 }

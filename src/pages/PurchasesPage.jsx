@@ -36,6 +36,17 @@ export default function PurchasesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [searchItem, setSearchItem] = useState("");
+  const [historySearch, setHistorySearch] = useState("");
+
+  const filteredHistory = useMemo(() => {
+    if (!historySearch) return purchases.data;
+    const s = historySearch.toLowerCase();
+    return purchases.data.filter(p => 
+      p.purchaseNo?.toLowerCase().includes(s) ||
+      p.supplierName?.toLowerCase().includes(s) ||
+      p.itemName?.toLowerCase().includes(s)
+    );
+  }, [purchases.data, historySearch]);
 
   const matchedSupplier = customers.data.find((c) => 
     form.supplierName.length >= 3 && 
@@ -196,8 +207,15 @@ export default function PurchasesPage() {
       </PageSection>
 
       <PageSection title="Purchase History" subtitle="Recent stock acquisitions">
+        <div className="field" style={{ marginBottom: '16px', maxWidth: '400px' }}>
+          <input 
+            placeholder="Search by Purchase No, Supplier or Item..." 
+            value={historySearch}
+            onChange={(e) => setHistorySearch(e.target.value)}
+          />
+        </div>
         <DataTable
-          rows={purchases.data}
+          rows={filteredHistory}
           columns={[
             { key: "purchaseNo", label: "Purchase No" },
             { key: "supplierName", label: "Supplier" },

@@ -25,6 +25,7 @@ import SmsMarketingPage from "./pages/SmsMarketingPage";
 import SettingsPage from "./pages/SettingsPage";
 import MoneyTransferPage from "./pages/MoneyTransferPage";
 import DataExportPage from "./pages/DataExportPage";
+import StaffOldMobilesPage from "./pages/StaffOldMobilesPage";
 import ProtectedRoute from "./routes/ProtectedRoute";
 
 function HomeRedirect() {
@@ -90,6 +91,7 @@ export default function App() {
         <Route path="money-transfer" element={<MoneyTransferPage />} />
         <Route path="cash-ledger" element={<CashLedgerPage />} />
         <Route path="inventory" element={<InventoryPage readOnly />} />
+        <Route path="old-mobiles" element={<StaffOldMobilesPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/login" replace />} />

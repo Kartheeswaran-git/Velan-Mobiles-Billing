@@ -48,6 +48,7 @@ const staffLinks = [
   { to: "/staff/money-transfer", label: "Money Transfer" },
   { to: "/staff/cash-ledger", label: "Cash Entry" },
   { to: "/staff/inventory", label: "Inventory" },
+  { to: "/staff/old-mobiles", label: "Sell Old Mobile" },
 ];
 
 export default function AppLayout({ role }) {

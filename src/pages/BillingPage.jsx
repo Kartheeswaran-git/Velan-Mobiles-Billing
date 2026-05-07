@@ -58,6 +58,7 @@ export default function BillingPage() {
       inventory.data.filter(
         (item) =>
           item.status === "available" &&
+          item.category !== "old_mobile" &&
           Number(item.quantity || 0) > 0 &&
           `${item.itemName} ${item.imei || ""}`.toLowerCase().includes(search.toLowerCase()),
       ),

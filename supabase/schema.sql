@@ -885,7 +885,7 @@ with check (public.is_admin());
 
 grant execute on function public.create_bill(uuid, text, text, text, jsonb, numeric, numeric, numeric, numeric, numeric, text, uuid, text) to authenticated;
 grant execute on function public.create_service_job(text, text, text, text, text, text, numeric, numeric, text, uuid, text) to authenticated;
-grant execute on function public.create_old_mobile_purchase(text, text, text, text, text, numeric, numeric, text, text, uuid, text) to authenticated;
+grant execute on function public.create_old_mobile_purchase(text, text, text, text, text, text, numeric, numeric, text, text, uuid, text) to authenticated;
 grant execute on function public.sell_old_mobile(uuid, numeric, text, uuid) to authenticated;
 
 do $$
