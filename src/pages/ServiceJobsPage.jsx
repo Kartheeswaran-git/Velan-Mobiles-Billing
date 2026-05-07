@@ -259,6 +259,7 @@ export default function ServiceJobsPage() {
                     placeholder="Customer mobile number"
                     value={form.customerPhone}
                     suggestions={customers.data.map(c => c.phone).filter(Boolean)}
+                    hint={matchedCustomer ? "✓ Profile Linked" : null}
                     onChange={(e) => setForm(curr => ({ ...curr, customerPhone: e.target.value }))}
                     onSelect={(phone) => {
                       const found = customers.data.find(c => normalizePhone(c.phone) === normalizePhone(phone));
@@ -272,7 +273,6 @@ export default function ServiceJobsPage() {
                     }}
                     required
                   />
-                  {matchedCustomer ? <span className="field-hint" style={{ marginTop: -14, marginBottom: 10, fontSize: '0.8rem', color: 'var(--success)' }}>Customer details auto-filled.</span> : null}
                 <div className="field">
                   <label>Box Number</label>
                   <input value={form.boxNo} onChange={(event) => setForm((current) => ({ ...current, boxNo: event.target.value }))} placeholder="BX-001 (Optional)" />

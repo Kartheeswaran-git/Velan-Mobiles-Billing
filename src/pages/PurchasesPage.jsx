@@ -153,7 +153,7 @@ export default function PurchasesPage() {
               placeholder="Distributor name"
               value={form.supplierName}
               suggestions={customers.data.map(c => c.name)}
-              hint={matchedSupplier ? "Supplier auto-filled" : null}
+              hint={matchedSupplier ? "✓ Profile Linked" : null}
               onChange={(e) => setForm(curr => ({ ...curr, supplierName: e.target.value }))}
               onSelect={(name) => {
                 const found = customers.data.find(c => c.name === name);

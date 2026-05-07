@@ -113,6 +113,7 @@ export default function MoneyTransferPage() {
               placeholder="Enter phone to auto-fill"
               value={form.customerPhone}
               suggestions={customers.data.map(c => c.phone).filter(Boolean)}
+              hint={matchedCustomer ? "✓ Profile Linked" : null}
               onChange={(e) => setForm(curr => ({ ...curr, customerPhone: e.target.value }))}
               onSelect={(phone) => {
                 const found = customers.data.find(c => normalizePhone(c.phone) === normalizePhone(phone));
@@ -126,7 +127,6 @@ export default function MoneyTransferPage() {
                 }
               }}
             />
-            {matchedCustomer ? <span className="field-hint" style={{ marginTop: -14, marginBottom: 10, fontSize: '0.8rem', color: 'var(--success)' }}>Customer details auto-filled.</span> : null}
             <div className="field">
               <label>Aadhaar No</label>
               <input value={form.aadharNo} onChange={(event) => setForm((current) => ({ ...current, aadharNo: event.target.value }))} placeholder="Aadhaar number optional" />

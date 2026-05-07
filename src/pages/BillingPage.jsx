@@ -347,7 +347,7 @@ export default function BillingPage() {
                       placeholder="Customer mobile number"
                       value={customer.phone}
                       suggestions={customers.data.map(c => c.phone).filter(Boolean)}
-                      hint={matchedCustomer && !editBillId ? "Customer auto-filled" : null}
+                      hint={matchedCustomer && !editBillId ? "✓ Profile Linked" : null}
                       onChange={(e) => setCustomer(curr => ({ ...curr, phone: e.target.value }))}
                       onSelect={(phone) => {
                         const found = customers.data.find(c => normalizePhone(c.phone) === normalizePhone(phone));

@@ -543,6 +543,11 @@ begin
     v_box_no := p_box_no;
   end if;
 
+  -- Check if box is already in use by an active job
+  if exists (select 1 from public.service_jobs where box_no = v_box_no and status != 'delivered') then
+    raise exception 'Box Number % is already in use by an active service job.', v_box_no;
+  end if;
+
   insert into public.service_jobs(
     job_no, box_no, customer_name, customer_phone, brand, model, imei, problem,
     estimate, advance, status, received_by, received_by_name, delivered_at
@@ -1111,5 +1116,10 @@ end;
 $$;
 
 notify pgrst, 'reload schema';
+
+-- Enforce unique box number for active jobs at database level
+create unique index if not exists service_jobs_active_box_no_idx 
+on public.service_jobs (box_no) 
+where status != 'delivered';
 
 comment on table public.users is 'Set the first admin manually after creating the auth user: update public.users set role = ''admin'' where id = ''<auth-user-uuid>'';';

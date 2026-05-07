@@ -33,27 +33,78 @@ export default function CashBankPage() {
       </div>
 
       <PageSection title="Balance Controls" subtitle="Internal shop cash-flow controls for setting balances and moving money between cash and bank">
-        <div className="dashboard-main-grid">
-          <form className="billing-block" onSubmit={async (event) => { event.preventDefault(); await adjustLedgerBalance("cash", targets.cash, user); }}>
-            <div className="billing-block-header"><h3>Update Cash In Hand</h3><span className="muted">Current {formatCurrency(cashSummary.closing)}</span></div>
-            <div className="field"><label>Target Cash Balance</label><input type="number" min="0" value={targets.cash} onChange={(event) => setTargets((current) => ({ ...current, cash: event.target.value }))} placeholder="New cash in hand" /></div>
-            <Button type="submit">Update Cash</Button>
+        <div className="form-grid" style={{ marginBottom: 32 }}>
+          <form className="billing-block" style={{ marginBottom: 0 }} onSubmit={async (event) => { event.preventDefault(); await adjustLedgerBalance("cash", targets.cash, user); }}>
+            <div className="billing-block-header">
+              <h3>Update Cash In Hand</h3>
+              <span className="muted">Current {formatCurrency(cashSummary.closing)}</span>
+            </div>
+            <div className="field">
+              <label>Target Cash Balance</label>
+              <input type="number" min="0" value={targets.cash} onChange={(event) => setTargets((current) => ({ ...current, cash: event.target.value }))} placeholder="New cash in hand" />
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <Button type="submit">Update Cash</Button>
+            </div>
           </form>
 
-          <form className="billing-block" onSubmit={async (event) => { event.preventDefault(); await adjustLedgerBalance("account", targets.account, user); }}>
-            <div className="billing-block-header"><h3>Update Cash In Bank</h3><span className="muted">Current {formatCurrency(accountSummary.closing)}</span></div>
-            <div className="field"><label>Target Bank Balance</label><input type="number" min="0" value={targets.account} onChange={(event) => setTargets((current) => ({ ...current, account: event.target.value }))} placeholder="New bank balance" /></div>
-            <Button type="submit">Update Bank</Button>
+          <form className="billing-block" style={{ marginBottom: 0 }} onSubmit={async (event) => { event.preventDefault(); await adjustLedgerBalance("account", targets.account, user); }}>
+            <div className="billing-block-header">
+              <h3>Update Cash In Bank</h3>
+              <span className="muted">Current {formatCurrency(accountSummary.closing)}</span>
+            </div>
+            <div className="field">
+              <label>Target Bank Balance</label>
+              <input type="number" min="0" value={targets.account} onChange={(event) => setTargets((current) => ({ ...current, account: event.target.value }))} placeholder="New bank balance" />
+            </div>
+            <div style={{ marginTop: 16 }}>
+              <Button type="submit">Update Bank</Button>
+            </div>
           </form>
         </div>
 
-        <form className="form-grid" style={{ marginTop: 18 }} onSubmit={async (event) => { event.preventDefault(); await transferBetweenLedgers(transfer, user); setTransfer({ from: "account", to: "cash", amount: "", note: "" }); }}>
-          <div className="field"><label>From</label><select value={transfer.from} onChange={(event) => setTransfer((current) => ({ ...current, from: event.target.value, to: current.to === event.target.value ? (event.target.value === "cash" ? "account" : "cash") : current.to }))}><option value="cash">cash</option><option value="account">account</option></select></div>
-          <div className="field"><label>To</label><select value={transfer.to} onChange={(event) => setTransfer((current) => ({ ...current, to: event.target.value }))}><option value="cash">cash</option><option value="account">account</option></select></div>
-          <div className="field"><label>Amount</label><input type="number" min="0" value={transfer.amount} onChange={(event) => setTransfer((current) => ({ ...current, amount: event.target.value }))} placeholder="Amount to move" /></div>
-          <div className="field"><label>Note</label><input value={transfer.note} onChange={(event) => setTransfer((current) => ({ ...current, note: event.target.value }))} placeholder="Move shop cash to bank, withdraw bank cash..." /></div>
-          <div className="field" style={{ justifyContent: "flex-end" }}><label>&nbsp;</label><Button type="submit">Move Shop Money</Button></div>
-        </form>
+        <div className="panel" style={{ borderTopColor: 'var(--primary)' }}>
+          <div className="panel-header">
+            <h3>Move Shop Money</h3>
+            <span className="muted">Transfer funds between cash drawer and bank account</span>
+          </div>
+          <form className="form-grid" onSubmit={async (event) => { event.preventDefault(); await transferBetweenLedgers(transfer, user); setTransfer({ from: "account", to: "cash", amount: "", note: "" }); }}>
+            <div className="field">
+              <label>From</label>
+              <select value={transfer.from} onChange={(event) => setTransfer((current) => ({ ...current, from: event.target.value, to: current.to === event.target.value ? (event.target.value === "cash" ? "account" : "cash") : current.to }))}>
+                <option value="cash">Cash Drawer</option>
+                <option value="account">Bank Account</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>To</label>
+              <select value={transfer.to} onChange={(event) => setTransfer((current) => ({ ...current, to: event.target.value }))}>
+                <option value="cash">Cash Drawer</option>
+                <option value="account">Bank Account</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Amount</label>
+              <input type="number" min="0" value={transfer.amount} onChange={(event) => setTransfer((current) => ({ ...current, amount: event.target.value }))} placeholder="Amount to move" required />
+            </div>
+            <div className="field">
+              <label>Note / Reference</label>
+              <input value={transfer.note} onChange={(event) => setTransfer((current) => ({ ...current, note: event.target.value }))} placeholder="Reason for transfer..." />
+            </div>
+          </form>
+          <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>
+            <Button type="submit" onClick={async (e) => { 
+              const form = e.target.closest('.panel').querySelector('form');
+              if (form.checkValidity()) {
+                form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+              } else {
+                form.reportValidity();
+              }
+            }}>
+              Confirm Transfer
+            </Button>
+          </div>
+        </div>
       </PageSection>
 
       <PageSection title="Recent Cash & Bank Activity" subtitle="Latest movement across both ledgers">
