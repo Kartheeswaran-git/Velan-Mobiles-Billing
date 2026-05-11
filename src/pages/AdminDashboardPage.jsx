@@ -41,7 +41,10 @@ export default function AdminDashboardPage() {
     .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   const todayMoneyTransfers = moneyTransfers.data.filter((transfer) => isSameDay(transfer.createdAt));
   const todayMoneyTransferProfit = todayMoneyTransfers.reduce((sum, transfer) => sum + Number(transfer.commission || 0), 0);
-  const estimatedProfit = totalSales + todayMoneyTransferProfit - todayExpenses;
+  const todayServiceProfit = services.data
+    .filter((job) => job.status === "delivered" && isSameDay(job.deliveredAt))
+    .reduce((sum, job) => sum + (Number(job.estimate || 0) - Number(job.sparePartsCost || 0)), 0);
+  const estimatedProfit = totalSales + todayMoneyTransferProfit + todayServiceProfit - todayExpenses;
   const cashBalance =
     cashLedger.data.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + Number(entry.amount || 0), 0) -
     cashLedger.data.filter((entry) => entry.type === "expense").reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
@@ -179,6 +182,16 @@ export default function AdminDashboardPage() {
     staffMap[key].cash += Number(bill.cashAmount || 0);
   });
 
+  const serviceStaffMap = {};
+  services.data
+    .filter((job) => isSameDay(job.receivedAt))
+    .forEach((job) => {
+      const key = job.receivedByName || job.receivedBy || "Unknown";
+      serviceStaffMap[key] = serviceStaffMap[key] || { id: key, name: key, jobs: 0, advance: 0 };
+      serviceStaffMap[key].jobs += 1;
+      serviceStaffMap[key].advance += Number(job.advance || 0);
+    });
+
   return (
     <div className="dashboard-shell">
       <div className="dashboard-heading">
@@ -212,6 +225,16 @@ export default function AdminDashboardPage() {
           <div className="overview-card-label">Today Customer Transfer Profit</div>
           <div className="overview-card-value">{formatCurrency(todayMoneyTransferProfit)}</div>
           <div className="overview-card-note">{todayMoneyTransfers.length} transfer(s) recorded today</div>
+        </div>
+        <div className="overview-card overview-card-success">
+          <div className="overview-card-label">Today Service Profit</div>
+          <div className="overview-card-value">{formatCurrency(todayServiceProfit)}</div>
+          <div className="overview-card-note">Profit from jobs delivered today</div>
+        </div>
+        <div className="overview-card overview-card-money" style={{ background: 'linear-gradient(135deg, #f0fdf4 0%, #ffffff 100%)', borderColor: '#4ade80' }}>
+          <div className="overview-card-label">Estimated Overall Profit Today</div>
+          <div className="overview-card-value" style={{ color: '#15803d' }}>{formatCurrency(estimatedProfit)}</div>
+          <div className="overview-card-note">Sales + MT + Service - Expenses</div>
         </div>
       </div>
 
@@ -347,14 +370,18 @@ export default function AdminDashboardPage() {
             <strong>{pendingJobs.length}</strong>
           </div>
           <div className="report-metric-card">
-            <span>Estimated Profit Today</span>
+            <span>Service Profit Today</span>
+            <strong>{formatCurrency(todayServiceProfit)}</strong>
+          </div>
+          <div className="report-metric-card">
+            <span>Estimated Total Profit Today</span>
             <strong>{formatCurrency(estimatedProfit)}</strong>
           </div>
         </div>
       </div>
 
       <div className="dashboard-footer-grid">
-        <PageSection title="Staff Summary" subtitle="Today billing performance">
+        <PageSection title="Staff Billing Summary" subtitle="Today billing performance">
           <div className="dashboard-mini-table">
             {Object.values(staffMap).length ? (
               Object.values(staffMap).map((row) => (
@@ -371,6 +398,27 @@ export default function AdminDashboardPage() {
               ))
             ) : (
               <div className="dashboard-empty-inline">No staff billing activity yet today.</div>
+            )}
+          </div>
+        </PageSection>
+
+        <PageSection title="Service Summary" subtitle="Today jobs received">
+          <div className="dashboard-mini-table">
+            {Object.values(serviceStaffMap).length ? (
+              Object.values(serviceStaffMap).map((row) => (
+                <div key={row.id} className="dashboard-mini-row">
+                  <div>
+                    <strong>{row.name}</strong>
+                    <p>{row.jobs} job(s) received today</p>
+                  </div>
+                  <div className="dashboard-mini-values">
+                    <span>{formatCurrency(row.advance)}</span>
+                    <small>Advance Collected</small>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="dashboard-empty-inline">No service jobs received today.</div>
             )}
           </div>
         </PageSection>

@@ -19,7 +19,12 @@ create table if not exists public.customers (
   created_at timestamptz not null default now()
 );
 
-alter table public.customers add constraint customers_phone_unique unique (phone);
+do $$ 
+begin 
+  if not exists (select 1 from pg_constraint where conname = 'customers_phone_unique') then
+    alter table public.customers add constraint customers_phone_unique unique (phone);
+  end if;
+end $$;
 
 create table if not exists public.product_master (
   id uuid primary key default gen_random_uuid(),
@@ -102,7 +107,9 @@ create table if not exists public.service_jobs (
   received_by uuid references public.users (id),
   received_by_name text default '',
   received_at timestamptz not null default now(),
-  delivered_at timestamptz
+  delivered_at timestamptz,
+  estimated_delivery_at timestamptz,
+  spare_parts_cost numeric(12,2) not null default 0
 );
 
 -- Migration for new status names
@@ -110,8 +117,13 @@ update public.service_jobs set status = 'repairing' where status = 'waiting_part
 update public.service_jobs set status = 'ready' where status = 'repaired';
 
 alter table public.service_jobs add column if not exists box_no text default '';
+alter table public.service_jobs add column if not exists spare_parts_cost numeric(12,2) not null default 0;
+alter table public.service_jobs add column if not exists estimated_delivery_at timestamptz;
 alter table public.service_jobs drop constraint if exists service_jobs_status_check;
 alter table public.service_jobs add constraint service_jobs_status_check check (status in ('received', 'checking', 'waiting_approval', 'repairing', 'ready', 'delivered'));
+
+-- Refresh schema cache
+NOTIFY pgrst, 'reload schema';
 
 create table if not exists public.cash_ledger (
   id uuid primary key default gen_random_uuid(),
@@ -514,7 +526,9 @@ create or replace function public.create_service_job(
   p_status text,
   p_received_by uuid,
   p_received_by_name text,
-  p_box_no text default ''
+  p_box_no text default '',
+  p_spare_parts_cost numeric default 0,
+  p_estimated_delivery_at timestamptz default null
 )
 returns uuid
 language plpgsql
@@ -550,12 +564,14 @@ begin
 
   insert into public.service_jobs(
     job_no, box_no, customer_name, customer_phone, brand, model, imei, problem,
-    estimate, advance, status, received_by, received_by_name, delivered_at
+    estimate, advance, status, received_by, received_by_name, delivered_at, spare_parts_cost,
+    estimated_delivery_at
   )
   values (
     v_job_no, v_box_no, p_customer_name, p_customer_phone, coalesce(p_brand, ''), coalesce(p_model, ''), coalesce(p_imei, ''),
     p_problem, p_estimate, p_advance, p_status, v_actor_id, coalesce(v_actor_name, p_received_by_name, ''),
-    case when p_status = 'delivered' then now() else null end
+    case when p_status = 'delivered' then now() else null end, p_spare_parts_cost,
+    p_estimated_delivery_at
   )
   returning id into v_id;
 
@@ -725,6 +741,8 @@ drop policy if exists "staff attendance self handle" on public.staff_attendance;
 drop policy if exists "online orders admin" on public.online_orders;
 drop policy if exists "sms campaigns admin" on public.sms_campaigns;
 drop policy if exists "app settings admin" on public.app_settings;
+drop policy if exists "product master select" on public.product_master;
+drop policy if exists "product master admin" on public.product_master;
 
 
 create policy "users self read" on public.users
@@ -992,7 +1010,12 @@ end $$;
 
 
 -- Ensure inventory has a unique constraint for matching during purchases
-alter table public.inventory add constraint inventory_matching_key unique (brand, model, item_name, imei);
+do $$ 
+begin 
+  if not exists (select 1 from pg_constraint where conname = 'inventory_matching_key') then
+    alter table public.inventory add constraint inventory_matching_key unique (brand, model, item_name, imei);
+  end if;
+end $$;
 
 create or replace function public.create_or_update_product(
   p_id uuid,

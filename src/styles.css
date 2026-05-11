@@ -259,6 +259,17 @@ textarea {
   background: #fff;
 }
 
+/* Remove number input spin buttons */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
 .field textarea {
   min-height: 120px;
   resize: vertical;
@@ -749,7 +760,7 @@ tr:hover td {
 
 .dashboard-footer-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: 18px;
 }
 

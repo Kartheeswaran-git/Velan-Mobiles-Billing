@@ -5,7 +5,7 @@ import DataTable from "../components/DataTable";
 import Loader from "../components/Loader";
 import PageSection from "../components/PageSection";
 import StatusBadge from "../components/StatusBadge";
-import { createServiceJob, updateServiceStatus } from "../supabase/database";
+import { createServiceJob, updateServiceJob, updateServiceStatus } from "../supabase/database";
 import { useAuth } from "../hooks/useAuth";
 import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
 import { serviceStatuses } from "../utils/constants";
@@ -20,6 +20,7 @@ const blankJob = {
   imei: "",
   problem: "",
   estimate: "",
+  sparePartsCost: "",
   receivedAt: toDateTimeInputValue(new Date()),
   estimatedDeliveryAt: "",
   status: "received",
@@ -127,6 +128,7 @@ export default function ServiceJobsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [lastCreatedJob, setLastCreatedJob] = useState(null);
+  const [editingId, setEditingId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -160,6 +162,15 @@ export default function ServiceJobsPage() {
       });
   }, [jobs.data, search, statusFilter]);
 
+  const historyRows = useMemo(() => {
+    return jobs.data
+      .filter((job) => job.status === "delivered")
+      .filter((job) => {
+        const text = `${job.customerName} ${job.customerPhone} ${job.jobNo} ${job.boxNo}`.toLowerCase();
+        return text.includes(search.toLowerCase());
+      });
+  }, [jobs.data, search]);
+
   const dashboard = useMemo(() => {
     const underRepairStatuses = ["checking", "waiting_approval", "repairing"];
     return {
@@ -170,6 +181,32 @@ export default function ServiceJobsPage() {
     };
   }, [jobs.data]);
 
+  function startEdit(job) {
+    setEditingId(job.id);
+    setForm({
+      customerName: job.customerName || "",
+      customerPhone: job.customerPhone || "",
+      boxNo: job.boxNo || "",
+      brand: job.brand || "",
+      model: job.model || "",
+      imei: job.imei || "",
+      problem: job.problem || "",
+      estimate: job.estimate || "",
+      advance: job.advance || "",
+      sparePartsCost: job.sparePartsCost || "",
+      receivedAt: job.receivedAt ? job.receivedAt.slice(0, 16) : toDateTimeInputValue(new Date()),
+      estimatedDeliveryAt: job.estimatedDeliveryAt ? job.estimatedDeliveryAt.slice(0, 16) : "",
+      status: job.status || "received",
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function resetForm() {
+    setForm({ ...blankJob, receivedAt: toDateTimeInputValue(new Date()) });
+    setEditingId("");
+    setLastCreatedJob(null);
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setSubmitting(true);
@@ -178,19 +215,27 @@ export default function ServiceJobsPage() {
     try {
       const payload = {
         ...form,
+        sparePartsCost: Number(form.sparePartsCost || 0),
         boxNo: String(form.boxNo || "").trim(),
         receivedAt: form.receivedAt ? new Date(form.receivedAt).toISOString() : new Date().toISOString(),
         estimatedDeliveryAt: form.estimatedDeliveryAt ? new Date(form.estimatedDeliveryAt).toISOString() : null,
       };
-      const createdJob = await createServiceJob(payload, user);
-      setLastCreatedJob(createdJob);
-      setForm({ ...blankJob, receivedAt: toDateTimeInputValue(new Date()) });
-      const whatsappPhone = normalizePhoneNumber(createdJob.customerPhone);
-      if (whatsappPhone) {
-        const text = encodeURIComponent(buildWhatsappMessage(createdJob));
-        window.open(`https://wa.me/${whatsappPhone}?text=${text}`, "_blank");
+
+      if (editingId) {
+        await updateServiceJob(editingId, payload);
+        setMessage(`Service job ${payload.boxNo || "updated"} saved successfully.`);
+        resetForm();
+      } else {
+        const createdJob = await createServiceJob(payload, user);
+        setLastCreatedJob(createdJob);
+        setForm({ ...blankJob, receivedAt: toDateTimeInputValue(new Date()) });
+        const whatsappPhone = normalizePhoneNumber(createdJob.customerPhone);
+        if (whatsappPhone) {
+          const text = encodeURIComponent(buildWhatsappMessage(createdJob));
+          window.open(`https://wa.me/${whatsappPhone}?text=${text}`, "_blank");
+        }
+        setMessage(`Service job created: ${createdJob.jobNo} • Box ${createdJob.boxNo}`);
       }
-      setMessage(`Service job created: ${createdJob.jobNo} • Box ${createdJob.boxNo}`);
     } catch (submitError) {
       setError(submitError.message || "Failed to save service job.");
     } finally {
@@ -199,7 +244,19 @@ export default function ServiceJobsPage() {
   }
 
   async function handleStatusChange(id, status) {
-    await updateServiceStatus(id, status);
+    try {
+      await updateServiceStatus(id, status);
+    } catch (err) {
+      alert("Failed to update status: " + err.message);
+    }
+  }
+
+  async function handleExpenseChange(id, value) {
+    try {
+      await updateServiceJob(id, { sparePartsCost: Number(value || 0) });
+    } catch (err) {
+      alert("Failed to update spare cost: " + err.message);
+    }
   }
 
   if (jobs.loading) {
@@ -231,9 +288,13 @@ export default function ServiceJobsPage() {
         </div>
       </div>
 
-      <div className={lastCreatedJob ? "billing-grid" : "list-stack"}>
+      <div className={lastCreatedJob || editingId ? "billing-grid" : "list-stack"}>
         <div className="billing-main">
-          <PageSection title="New Service Job" subtitle="Receive phone service requests">
+          <PageSection 
+            title={editingId ? "Edit Service Job" : "New Service Job"} 
+            subtitle={editingId ? `Editing ${form.brand} ${form.model}` : "Receive phone service requests"}
+            actions={editingId && <Button variant="secondary" onClick={resetForm}>Cancel Edit</Button>}
+          >
             <form className="list-stack" onSubmit={handleSubmit}>
               <div className="form-grid">
                   <Autocomplete
@@ -298,6 +359,10 @@ export default function ServiceJobsPage() {
                   <input type="number" min="0" value={form.advance} onChange={(event) => setForm((current) => ({ ...current, advance: event.target.value }))} placeholder="Advance paid" />
                 </div>
                 <div className="field">
+                  <label>Spare Parts Cost (Expense)</label>
+                  <input type="number" min="0" value={form.sparePartsCost} onChange={(event) => setForm((current) => ({ ...current, sparePartsCost: event.target.value }))} placeholder="Cost of spares used" />
+                </div>
+                <div className="field">
                   <label>Received Date & Time</label>
                   <input type="datetime-local" value={form.receivedAt} onChange={(event) => setForm((current) => ({ ...current, receivedAt: event.target.value }))} required />
                 </div>
@@ -321,7 +386,7 @@ export default function ServiceJobsPage() {
                 <textarea value={form.problem} onChange={(event) => setForm((current) => ({ ...current, problem: event.target.value }))} placeholder="Display broken, charging issue, software problem..." required />
               </div>
               <Button type="submit" disabled={submitting}>
-                {submitting ? "Saving..." : "Save Service Job"}
+                {submitting ? "Saving..." : editingId ? "Update Service Job" : "Save Service Job"}
               </Button>
             </form>
           </PageSection>
@@ -405,21 +470,41 @@ export default function ServiceJobsPage() {
                 </span>
               </div>
             )},
-            { key: "estimate", label: "Estimate", render: (row) => (
+            { key: "estimate", label: "Estimate / Profit", render: (row) => (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <strong>{formatCurrency(row.estimate)}</strong>
-                {row.advance > 0 && <span className="badge success" style={{ fontSize: '0.7rem', padding: '2px 6px' }}>Adv: {formatCurrency(row.advance)}</span>}
+                <strong title="Estimate Cost">{formatCurrency(row.estimate)}</strong>
+                <span className="muted" style={{ fontSize: '0.75rem' }}>Exp: {formatCurrency(row.sparePartsCost)}</span>
+                <span className="badge success" style={{ fontSize: '0.75rem', padding: '2px 6px', marginTop: '4px' }}>
+                  Profit: {formatCurrency(Number(row.estimate || 0) - Number(row.sparePartsCost || 0))}
+                </span>
               </div>
             )},
             {
-              key: "status_update",
-              label: "Status & Update",
+              key: "expense_update",
+              label: "Update Expense",
               render: (row) => (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.7rem', color: '#64748b' }}>Spare Cost</label>
+                  <input
+                    key={`${row.id}-${row.sparePartsCost}`}
+                    type="number"
+                    className="table-input"
+                    style={{ width: '100px', fontSize: '0.8rem', padding: '4px 8px' }}
+                    defaultValue={row.sparePartsCost}
+                    onBlur={(e) => handleExpenseChange(row.id, e.target.value)}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: "status_update",
+              label: "Current Status",
+              render: (row) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'center', minWidth: '130px' }}>
                   <StatusBadge value={row.status} />
                   <select
                     className="table-input"
-                    style={{ width: '130px', fontSize: '0.8rem', padding: '4px 8px' }}
+                    style={{ width: '100%', fontSize: '0.8rem', padding: '4px 8px' }}
                     value={row.status}
                     onChange={(event) => handleStatusChange(row.id, event.target.value)}
                   >
@@ -436,12 +521,13 @@ export default function ServiceJobsPage() {
               key: "actions",
               label: "Actions",
               render: (row) => (
-                <div style={{ display: "flex", gap: "6px" }}>
+                <div style={{ display: "flex", gap: "4px", justifyContent: 'center' }}>
                   <Button
                     type="button"
                     variant="secondary"
                     onClick={() => printServiceCard(row, currentSettings)}
-                    style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                    style={{ padding: '6px 8px', fontSize: '0.8rem' }}
+                    title="Print Receipt"
                   >
                     Print
                   </Button>
@@ -454,9 +540,19 @@ export default function ServiceJobsPage() {
                       const text = encodeURIComponent(buildWhatsappMessage(row));
                       window.open(`https://wa.me/${whatsappPhone}?text=${text}`, "_blank");
                     }}
-                    style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                    style={{ padding: '6px 8px', fontSize: '0.8rem' }}
+                    title="WhatsApp Customer"
                   >
                     WA
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => startEdit(row)}
+                    style={{ padding: '6px 8px', fontSize: '0.8rem' }}
+                    title="Edit Job"
+                  >
+                    Edit
                   </Button>
                 </div>
               ),
@@ -466,6 +562,92 @@ export default function ServiceJobsPage() {
             )},
           ]}
           emptyText="No active service jobs in queue."
+        />
+      </PageSection>
+
+      <PageSection title="Service History" subtitle="Completed and delivered service jobs">
+        <DataTable
+          rows={historyRows}
+          columns={[
+            { key: "jobNo", label: "Job / Box", render: (row) => (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontWeight: 700 }}>{row.jobNo}</span>
+                <span className="muted" style={{ fontSize: '0.8rem' }}>{row.boxNo}</span>
+              </div>
+            )},
+            { key: "customerName", label: "Customer", render: (row) => (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <strong>{row.customerName}</strong>
+                <span className="muted" style={{ fontSize: '0.8rem' }}>{row.customerPhone}</span>
+              </div>
+            )},
+            { key: "device", label: "Device & Problem", render: (row) => (
+              <div style={{ display: 'flex', flexDirection: 'column', maxWidth: '240px' }}>
+                <strong>{row.model}</strong>
+                <span className="muted" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {row.problem}
+                </span>
+              </div>
+            )},
+            { key: "financials", label: "Financials / Profit", render: (row) => (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <strong>Total: {formatCurrency(row.estimate)}</strong>
+                <span className="muted" style={{ fontSize: '0.75rem' }}>Expense: {formatCurrency(row.sparePartsCost)}</span>
+                <span className="badge success" style={{ fontSize: '0.75rem', padding: '2px 6px', marginTop: '4px' }}>
+                  Profit: {formatCurrency(Number(row.estimate || 0) - Number(row.sparePartsCost || 0))}
+                </span>
+              </div>
+            )},
+            {
+              key: "expense_update",
+              label: "Update Expense",
+              render: (row) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <label style={{ fontSize: '0.7rem', color: '#64748b' }}>Spare Cost</label>
+                  <input
+                    key={`${row.id}-${row.sparePartsCost}`}
+                    type="number"
+                    className="table-input"
+                    style={{ width: '100px', fontSize: '0.8rem', padding: '4px 8px' }}
+                    defaultValue={row.sparePartsCost}
+                    onBlur={(e) => handleExpenseChange(row.id, e.target.value)}
+                  />
+                </div>
+              ),
+            },
+            { key: "status", label: "Status", render: (row) => <StatusBadge value={row.status} /> },
+            { key: "deliveredAt", label: "Delivered On", render: (row) => (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: '0.85rem' }}>{formatDate(row.deliveredAt)}</span>
+                <span className="muted" style={{ fontSize: '0.75rem' }}>Rec: {formatDate(row.receivedAt)}</span>
+              </div>
+            )},
+            {
+              key: "actions",
+              label: "Actions",
+              render: (row) => (
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => printServiceCard(row, currentSettings)}
+                    style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                  >
+                    Reprint
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => startEdit(row)}
+                    style={{ padding: '6px 10px', fontSize: '0.85rem' }}
+                  >
+                    Edit
+                  </Button>
+                </div>
+              ),
+            },
+          ]}
+          emptyText="No delivered service jobs found."
         />
       </PageSection>
     </div>

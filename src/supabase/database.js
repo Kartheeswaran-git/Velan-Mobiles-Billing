@@ -315,7 +315,9 @@ export async function createServiceJob(payload, currentUser) {
     p_status: payload.status || "received",
     p_received_by: currentUser.uid,
     p_received_by_name: currentUser.name,
-    p_box_no: payload.boxNo || ""
+    p_box_no: payload.boxNo || "",
+    p_spare_parts_cost: Number(payload.sparePartsCost || 0),
+    p_estimated_delivery_at: payload.estimatedDeliveryAt || null
   });
 
   if (error) {
@@ -339,6 +341,34 @@ export async function updateServiceStatus(id, status) {
     deliveredAt: status === "delivered" ? new Date().toISOString() : null,
   };
   await updateRecord("service_jobs", id, patch);
+}
+
+export async function updateServiceJob(id, payload) {
+  const data = {};
+  if (payload.customerName !== undefined) data.customer_name = payload.customerName;
+  if (payload.customerPhone !== undefined) data.customer_phone = payload.customerPhone;
+  if (payload.brand !== undefined) data.brand = payload.brand;
+  if (payload.model !== undefined) data.model = payload.model;
+  if (payload.imei !== undefined) data.imei = payload.imei;
+  if (payload.problem !== undefined) data.problem = payload.problem;
+  if (payload.estimate !== undefined) data.estimate = Number(payload.estimate || 0);
+  if (payload.advance !== undefined) data.advance = Number(payload.advance || 0);
+  if (payload.sparePartsCost !== undefined) data.spare_parts_cost = Number(payload.sparePartsCost || 0);
+  if (payload.status !== undefined) data.status = payload.status;
+  if (payload.boxNo !== undefined) data.box_no = payload.boxNo;
+  if (payload.receivedAt !== undefined) data.received_at = payload.receivedAt;
+  if (payload.estimatedDeliveryAt !== undefined) data.estimated_delivery_at = payload.estimatedDeliveryAt || null;
+
+  if (data.status === "delivered" && !payload.deliveredAt) {
+    data.delivered_at = new Date().toISOString();
+  } else if (payload.deliveredAt) {
+    data.delivered_at = payload.deliveredAt;
+  }
+
+  const { error } = await supabase.from("service_jobs").update(data).eq("id", id);
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
 export async function checkInStaff() {
