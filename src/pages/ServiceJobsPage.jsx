@@ -5,7 +5,8 @@ import DataTable from "../components/DataTable";
 import Loader from "../components/Loader";
 import PageSection from "../components/PageSection";
 import StatusBadge from "../components/StatusBadge";
-import { createServiceJob, updateServiceJob, updateServiceStatus } from "../supabase/database";
+import Modal from "../components/Modal";
+import { createServiceJob, updateServiceJob, updateServiceStatus, deliverServiceJob } from "../supabase/database";
 import { useAuth } from "../hooks/useAuth";
 import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
 import { serviceStatuses } from "../utils/constants";
@@ -131,6 +132,8 @@ export default function ServiceJobsPage() {
   const [editingId, setEditingId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [deliveryJob, setDeliveryJob] = useState(null);
+  const [deliveryForm, setDeliveryForm] = useState({ finalAmount: 0, paymentType: 'cash', sparePartsCost: 0 });
 
   const customers = useFirestoreCollection("customers", { orderBy: { field: "createdAt", direction: "desc" } });
   
@@ -244,10 +247,42 @@ export default function ServiceJobsPage() {
   }
 
   async function handleStatusChange(id, status) {
+    if (status === "delivered") {
+      const job = jobs.data.find(j => j.id === id);
+      if (job) openDeliveryModal(job);
+      return;
+    }
     try {
       await updateServiceStatus(id, status);
     } catch (err) {
       alert("Failed to update status: " + err.message);
+    }
+  }
+
+  function openDeliveryModal(job) {
+    setDeliveryJob(job);
+    setDeliveryForm({
+      finalAmount: job.estimate || 0,
+      paymentType: 'cash',
+      sparePartsCost: job.sparePartsCost || 0
+    });
+  }
+
+  async function handleDeliverSubmit() {
+    try {
+      setSubmitting(true);
+      await deliverServiceJob({
+        jobId: deliveryJob.id,
+        finalAmount: deliveryForm.finalAmount,
+        paymentType: deliveryForm.paymentType,
+        sparePartsCost: deliveryForm.sparePartsCost
+      });
+      setDeliveryJob(null);
+      setMessage(`Service job ${deliveryJob.jobNo} marked as delivered and payment recorded.`);
+    } catch (err) {
+      alert("Delivery failed: " + err.message);
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -264,7 +299,8 @@ export default function ServiceJobsPage() {
   }
 
   return (
-    <div className="dashboard-shell">
+    <div className="compact-page">
+      <div className="dashboard-shell">
       <div className="dashboard-overview-grid">
         <div className="overview-card overview-card-neutral">
           <div className="overview-card-label">Received Today</div>
@@ -554,6 +590,15 @@ export default function ServiceJobsPage() {
                   >
                     Edit
                   </Button>
+                  {row.status === 'ready' && (
+                    <Button
+                      type="button"
+                      onClick={() => openDeliveryModal(row)}
+                      style={{ padding: '6px 8px', fontSize: '0.8rem', background: 'var(--success)', color: 'white', borderColor: 'var(--success)' }}
+                    >
+                      Deliver
+                    </Button>
+                  )}
                 </div>
               ),
             },
@@ -591,10 +636,10 @@ export default function ServiceJobsPage() {
             )},
             { key: "financials", label: "Financials / Profit", render: (row) => (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <strong>Total: {formatCurrency(row.estimate)}</strong>
+                <strong>Paid: {formatCurrency(row.finalAmount || row.estimate)}</strong>
                 <span className="muted" style={{ fontSize: '0.75rem' }}>Expense: {formatCurrency(row.sparePartsCost)}</span>
                 <span className="badge success" style={{ fontSize: '0.75rem', padding: '2px 6px', marginTop: '4px' }}>
-                  Profit: {formatCurrency(Number(row.estimate || 0) - Number(row.sparePartsCost || 0))}
+                  Profit: {formatCurrency(Number(row.finalAmount || row.estimate || 0) - Number(row.sparePartsCost || 0))}
                 </span>
               </div>
             )},
@@ -650,6 +695,76 @@ export default function ServiceJobsPage() {
           emptyText="No delivered service jobs found."
         />
       </PageSection>
+
+      <Modal
+        isOpen={!!deliveryJob}
+        onClose={() => setDeliveryJob(null)}
+        title={`Deliver Job: ${deliveryJob?.jobNo}`}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => setDeliveryJob(null)}>Cancel</Button>
+            <Button onClick={handleDeliverSubmit} disabled={submitting}>Confirm Delivery & Payment</Button>
+          </>
+        }
+      >
+        {deliveryJob && (
+          <div className="list-stack">
+            <div className="overview-card" style={{ marginBottom: 16, background: '#f8fafc' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label className="muted" style={{ fontSize: '0.8rem' }}>Customer</label>
+                  <div style={{ fontWeight: 700 }}>{deliveryJob.customerName}</div>
+                </div>
+                <div>
+                  <label className="muted" style={{ fontSize: '0.8rem' }}>Box No</label>
+                  <div style={{ fontWeight: 700 }}>{deliveryJob.boxNo}</div>
+                </div>
+                <div>
+                  <label className="muted" style={{ fontSize: '0.8rem' }}>Estimate</label>
+                  <div style={{ fontWeight: 700 }}>{formatCurrency(deliveryJob.estimate)}</div>
+                </div>
+                <div>
+                  <label className="muted" style={{ fontSize: '0.8rem' }}>Advance Paid</label>
+                  <div style={{ fontWeight: 700, color: 'var(--success)' }}>{formatCurrency(deliveryJob.advance)}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="field">
+              <label>Final Service Charge</label>
+              <input 
+                type="number" 
+                value={deliveryForm.finalAmount} 
+                onChange={(e) => setDeliveryForm(f => ({ ...f, finalAmount: e.target.value }))}
+              />
+              <div style={{ fontSize: '0.9rem', marginTop: 4, fontWeight: 700, color: 'var(--primary)' }}>
+                Balance to Collect: {formatCurrency(Math.max(0, Number(deliveryForm.finalAmount || 0) - Number(deliveryJob.advance || 0)))}
+              </div>
+            </div>
+
+            <div className="field">
+              <label>Final Spare Parts Cost (For Profit Calculation)</label>
+              <input 
+                type="number" 
+                value={deliveryForm.sparePartsCost} 
+                onChange={(e) => setDeliveryForm(f => ({ ...f, sparePartsCost: e.target.value }))}
+              />
+            </div>
+
+            <div className="field">
+              <label>Payment Method for Balance</label>
+              <select 
+                value={deliveryForm.paymentType} 
+                onChange={(e) => setDeliveryForm(f => ({ ...f, paymentType: e.target.value }))}
+              >
+                <option value="cash">Cash</option>
+                <option value="account">Bank / UPI Account</option>
+              </select>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
     </div>
   );
 }

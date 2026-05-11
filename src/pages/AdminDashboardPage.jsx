@@ -43,7 +43,7 @@ export default function AdminDashboardPage() {
   const todayMoneyTransferProfit = todayMoneyTransfers.reduce((sum, transfer) => sum + Number(transfer.commission || 0), 0);
   const todayServiceProfit = services.data
     .filter((job) => job.status === "delivered" && isSameDay(job.deliveredAt))
-    .reduce((sum, job) => sum + (Number(job.estimate || 0) - Number(job.sparePartsCost || 0)), 0);
+    .reduce((sum, job) => sum + (Number(job.finalAmount || job.estimate || 0) - Number(job.sparePartsCost || 0)), 0);
   const estimatedProfit = totalSales + todayMoneyTransferProfit + todayServiceProfit - todayExpenses;
   const cashBalance =
     cashLedger.data.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + Number(entry.amount || 0), 0) -

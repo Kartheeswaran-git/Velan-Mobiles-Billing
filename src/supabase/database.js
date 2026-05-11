@@ -343,6 +343,19 @@ export async function updateServiceStatus(id, status) {
   await updateRecord("service_jobs", id, patch);
 }
 
+export async function deliverServiceJob({ jobId, finalAmount, paymentType, sparePartsCost }) {
+  const { error } = await supabase.rpc("deliver_service_job", {
+    p_job_id: jobId,
+    p_final_amount: Number(finalAmount),
+    p_payment_type: paymentType,
+    p_spare_parts_cost: Number(sparePartsCost),
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 export async function updateServiceJob(id, payload) {
   const data = {};
   if (payload.customerName !== undefined) data.customer_name = payload.customerName;

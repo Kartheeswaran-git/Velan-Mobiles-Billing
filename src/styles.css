@@ -1598,6 +1598,129 @@ input:checked + .slider .label-offline {
   color: var(--primary-dark);
 }
 
+/* Compact Page styling to fit more content */
+.compact-page {
+  font-size: 0.9rem;
+}
+
+.compact-page .content {
+  padding: 16px 20px !important;
+}
+
+.compact-page .panel {
+  padding: 16px !important;
+  margin-bottom: 16px !important;
+}
+
+.compact-page .form-grid {
+  gap: 12px !important;
+}
+
+.compact-page .field input,
+.compact-page .field select,
+.compact-page .field textarea {
+  padding: 8px 12px !important;
+  min-height: 36px !important;
+  font-size: 0.88rem !important;
+}
+
+.compact-page table th,
+.compact-page table td {
+  padding: 10px 12px !important;
+  font-size: 0.85rem !important;
+}
+
+.compact-page .overview-card {
+  padding: 16px !important;
+}
+
+.compact-page .overview-card-value {
+  font-size: 1.6rem !important;
+}
+
+.compact-page .overview-card-label {
+  font-size: 0.85rem !important;
+  margin-bottom: 6px !important;
+}
+
+.compact-page .billing-grid {
+  gap: 16px !important;
+}
+
+.compact-page .page-title h1 {
+  font-size: 1.4rem !important;
+}
+
+.compact-page .topbar {
+  padding: 12px 16px !important;
+  margin-bottom: 20px !important;
+}
+
+/* Modal Styling */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 500px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 20px;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: #1e293b;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #64748b;
+}
+
+.modal-body {
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.modal-actions {
+  padding: 16px 20px;
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+
+
 .autocomplete-item strong {
   color: var(--primary);
 }

@@ -109,7 +109,9 @@ create table if not exists public.service_jobs (
   received_at timestamptz not null default now(),
   delivered_at timestamptz,
   estimated_delivery_at timestamptz,
-  spare_parts_cost numeric(12,2) not null default 0
+  spare_parts_cost numeric(12,2) not null default 0,
+  final_amount numeric(12,2) not null default 0,
+  payment_type text default 'cash' check (payment_type in ('cash', 'account'))
 );
 
 -- Migration for new status names
@@ -119,6 +121,8 @@ update public.service_jobs set status = 'ready' where status = 'repaired';
 alter table public.service_jobs add column if not exists box_no text default '';
 alter table public.service_jobs add column if not exists spare_parts_cost numeric(12,2) not null default 0;
 alter table public.service_jobs add column if not exists estimated_delivery_at timestamptz;
+alter table public.service_jobs add column if not exists final_amount numeric(12,2) not null default 0;
+alter table public.service_jobs add column if not exists payment_type text default 'cash' check (payment_type in ('cash', 'account'));
 alter table public.service_jobs drop constraint if exists service_jobs_status_check;
 alter table public.service_jobs add constraint service_jobs_status_check check (status in ('received', 'checking', 'waiting_approval', 'repairing', 'ready', 'delivered'));
 
@@ -575,7 +579,69 @@ begin
   )
   returning id into v_id;
 
+  -- Record advance in cash ledger if paid
+  if p_advance > 0 then
+    insert into public.cash_ledger(type, category, amount, note, created_by, created_by_name)
+    values ('income', 'service_advance', p_advance, 'Advance for Job ' || v_job_no, v_actor_id, coalesce(v_actor_name, p_received_by_name, ''));
+  end if;
+
   return v_id;
+end;
+$$;
+
+create or replace function public.deliver_service_job(
+  p_job_id uuid,
+  p_final_amount numeric,
+  p_payment_type text,
+  p_spare_parts_cost numeric
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_job record;
+  v_balance numeric;
+  v_actor_id uuid;
+  v_actor_name text;
+begin
+  v_actor_id := auth.uid();
+  if v_actor_id is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select * into v_job from public.service_jobs where id = p_job_id for update;
+  if not found then
+    raise exception 'Service job not found';
+  end if;
+
+  if v_job.status = 'delivered' then
+    raise exception 'Service job is already delivered';
+  end if;
+
+  select name into v_actor_name from public.users where id = v_actor_id;
+  v_balance := p_final_amount - v_job.advance;
+
+  update public.service_jobs
+  set 
+    status = 'delivered',
+    final_amount = p_final_amount,
+    payment_type = p_payment_type,
+    spare_parts_cost = p_spare_parts_cost,
+    delivered_at = now()
+  where id = p_job_id;
+
+  -- Record balance payment in ledger
+  if v_balance > 0 then
+    if p_payment_type = 'cash' then
+      insert into public.cash_ledger(type, category, amount, note, created_by, created_by_name)
+      values ('income', 'service_payment', v_balance, 'Balance for Job ' || v_job.job_no, v_actor_id, v_actor_name);
+    else
+      insert into public.account_ledger(type, category, amount, note, created_by, created_by_name)
+      values ('income', 'service_payment', v_balance, 'Balance for Job ' || v_job.job_no, v_actor_id, v_actor_name);
+    end if;
+  end if;
 end;
 $$;
 
