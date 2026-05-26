@@ -704,12 +704,11 @@ begin
 end;
 $$;
 
-create or replace function public.create_old_mobile_sale(
+create or replace function public.sell_old_mobile(
   p_inventory_id uuid,
   p_customer_name text,
   p_customer_phone text,
   p_sell_price numeric,
-  p_payment_type text,
   p_created_by uuid,
   p_created_by_name text
 )
@@ -722,7 +721,6 @@ declare
   v_buy_price numeric;
   v_actor_id uuid;
   v_actor_name text;
-  v_created_by_name text;
 begin
   v_actor_id := auth.uid();
   if v_actor_id is null then
@@ -746,7 +744,7 @@ begin
   values (p_inventory_id, v_buy_price, p_sell_price, p_sell_price - v_buy_price, p_customer_name, v_actor_id, 'sold');
 
   insert into public.cash_ledger(type, category, amount, note, created_by, created_by_name)
-  values ('income', 'old_mobile_sale', p_sell_price, 'Old mobile sold to ' || p_customer_name, v_actor_id, coalesce(v_created_by_name, ''));
+  values ('income', 'old_mobile_sale', p_sell_price, 'Old mobile sold to ' || p_customer_name, v_actor_id, coalesce(p_created_by_name, v_actor_name, ''));
 
   insert into public.inventory_transactions(item_id, action, quantity, note, staff_id)
   values (p_inventory_id, 'sold', 1, 'Old mobile sale', v_actor_id);
@@ -968,9 +966,14 @@ using (public.is_admin())
 with check (public.is_admin());
 
 grant execute on function public.create_bill(uuid, text, text, text, jsonb, numeric, numeric, numeric, numeric, numeric, text, uuid, text) to authenticated;
-grant execute on function public.create_service_job(text, text, text, text, text, text, numeric, numeric, text, uuid, text) to authenticated;
+grant execute on function public.create_service_job(text, text, text, text, text, text, numeric, numeric, text, uuid, text, text, numeric, timestamptz) to authenticated;
+grant execute on function public.deliver_service_job(uuid, numeric, text, numeric) to authenticated;
 grant execute on function public.create_old_mobile_purchase(text, text, text, text, text, text, numeric, numeric, text, text, uuid, text) to authenticated;
-grant execute on function public.sell_old_mobile(uuid, numeric, text, uuid) to authenticated;
+grant execute on function public.sell_old_mobile(uuid, text, text, numeric, uuid, text) to authenticated;
+grant execute on function public.check_in_staff() to authenticated;
+grant execute on function public.ensure_customer(text, text, text, text) to authenticated;
+grant execute on function public.create_or_update_product(uuid, text, text, text, text, text, numeric, integer, text) to authenticated;
+grant execute on function public.record_purchase(uuid, text, text, integer, numeric, text, text, uuid, text, text) to authenticated;
 
 do $$
 begin
