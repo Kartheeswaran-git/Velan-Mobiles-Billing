@@ -15,6 +15,7 @@
   --text-soft: #4b5563;
   --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --sidebar-width: clamp(250px, 18vw, 300px);
 }
 
 * {
@@ -44,9 +45,10 @@ textarea {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: 280px 1fr;
+  display: block;
   min-height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
 }
 
 /* Sidebar Styling - Sharp Red with subtle curves */
@@ -54,12 +56,17 @@ textarea {
   background: var(--primary-dark);
   color: #fef2f2;
   padding: 24px 20px;
-  position: sticky;
+  position: fixed;
   top: 0;
-  height: 100vh;
-  overflow-y: auto;
+  left: 0;
+  bottom: 0;
+  width: var(--sidebar-width);
+  height: 100dvh;
+  overflow: hidden;
   z-index: 10;
   border-right: 1px solid #7f1d1d;
+  display: flex;
+  flex-direction: column;
 }
 
 .brand {
@@ -92,6 +99,23 @@ textarea {
   justify-content: center;
 }
 
+.sidebar-nav {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.35) transparent;
+}
+
+.sidebar-nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+}
+
 .nav-section-title {
   color: #fca5a5;
   text-transform: uppercase;
@@ -122,9 +146,11 @@ textarea {
 
 .content {
   padding: 32px;
-  max-width: 1400px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0 0 0 var(--sidebar-width);
   width: 100%;
+  width: calc(100% - var(--sidebar-width));
+  min-width: 0;
 }
 
 .topbar {
@@ -155,6 +181,8 @@ textarea {
   display: flex;
   gap: 12px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .card-grid {
@@ -223,8 +251,25 @@ textarea {
 
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 20px;
+  align-items: start;
+}
+
+.form-grid-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-grid-four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.form-grid-wide {
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+}
+
+.field-span-2 {
+  grid-column: span 2;
 }
 
 .field {
@@ -385,6 +430,58 @@ tr:hover td {
   box-shadow: 0 0 0 2px var(--primary-light);
 }
 
+.permission-editor {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.permission-editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.permission-editor-header h3,
+.permission-editor-header p {
+  margin: 0;
+}
+
+.permission-editor-header p {
+  margin-top: 5px;
+  color: var(--text-soft);
+}
+
+.permission-table th:not(:first-child),
+.permission-table td:not(:first-child) {
+  width: 110px;
+  text-align: center;
+}
+
+.permission-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.permission-unavailable {
+  color: var(--text-soft);
+}
+
+@media (max-width: 720px) {
+  .permission-editor-header {
+    flex-direction: column;
+  }
+
+  .permission-table th,
+  .permission-table td {
+    padding: 10px 12px;
+  }
+}
+
 .transfer-type-buttons {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -537,7 +634,7 @@ tr:hover td {
 
 .billing-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.8fr) minmax(350px, 1fr);
+  grid-template-columns: minmax(0, 1.8fr) minmax(min(350px, 100%), 1fr);
   gap: 24px;
 }
 
@@ -695,7 +792,7 @@ tr:hover td {
 
 .dashboard-overview-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 18px;
 }
 
@@ -735,10 +832,12 @@ tr:hover td {
 }
 
 .overview-card-value {
-  font-size: 2.1rem;
+  font-size: clamp(1.45rem, 1.1rem + 1.2vw, 2.1rem);
   font-weight: 800;
   color: #111827;
   margin-bottom: 10px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .overview-card-note {
@@ -748,19 +847,19 @@ tr:hover td {
 
 .dashboard-main-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.75fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(0, 1.75fr) minmax(min(320px, 100%), 0.9fr);
   gap: 18px;
 }
 
 .dashboard-report-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 0.7fr);
+  grid-template-columns: minmax(0, 1.7fr) minmax(min(260px, 100%), 0.7fr);
   gap: 18px;
 }
 
 .dashboard-footer-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
   gap: 18px;
 }
 
@@ -1127,6 +1226,12 @@ tr:hover td {
     display: none;
   }
 
+  .content,
+  .app-shell > .content {
+    margin-left: 0;
+    width: 100%;
+  }
+
   .mobile-nav {
     display: flex;
     overflow-x: auto;
@@ -1167,8 +1272,15 @@ tr:hover td {
   .dashboard-overview-grid,
   .dashboard-main-grid,
   .dashboard-report-grid,
-  .dashboard-footer-grid {
+  .dashboard-footer-grid,
+  .form-grid-three,
+  .form-grid-four,
+  .form-grid-wide {
     grid-template-columns: 1fr;
+  }
+
+  .field-span-2 {
+    grid-column: auto;
   }
 
   .dashboard-heading {
@@ -1210,6 +1322,11 @@ tr:hover td {
   .topbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .dashboard-transaction-head,
@@ -1274,6 +1391,13 @@ body {
   padding: 28px 30px 34px;
 }
 
+.app-shell > .content {
+  max-width: none;
+  margin: 0 0 0 var(--sidebar-width);
+  width: calc(100% - var(--sidebar-width));
+  min-width: 0;
+}
+
 .topbar {
   background: rgba(255, 255, 255, 0.78);
   backdrop-filter: blur(10px);
@@ -1281,6 +1405,10 @@ body {
   border-radius: var(--radius-md);
   padding: 16px 18px;
   margin-bottom: 26px;
+}
+
+.topbar .page-title {
+  min-width: 0;
 }
 
 .page-title h1 {
@@ -1725,3 +1853,21 @@ input:checked + .slider .label-offline {
   color: var(--primary);
 }
 
+.today-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.today-action-grid .btn {
+  min-height: 52px;
+  justify-content: center;
+}
+
+@media (max-width: 1024px) {
+  .content,
+  .app-shell > .content {
+    margin-left: 0;
+    width: 100%;
+  }
+}

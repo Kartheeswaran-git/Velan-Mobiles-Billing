@@ -9,6 +9,7 @@ import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
 import { inventoryCategories } from "../utils/constants";
 import { formatCurrency, formatDate } from "../utils/format";
 import { supabase } from "../supabase/client";
+import { hasPermission } from "../utils/permissions";
 
 const blankForm = {
   category: "new_mobile",
@@ -23,6 +24,9 @@ const blankForm = {
 
 export default function InventoryPage({ readOnly = false }) {
   const { user } = useAuth();
+  const canCreate = hasPermission(user, "inventory", "create");
+  const canUpdate = hasPermission(user, "inventory", "update");
+  const canDelete = hasPermission(user, "inventory", "delete");
   const products = useFirestoreCollection("product_master", { orderBy: { field: "createdAt", direction: "desc" } });
   const bills = useFirestoreCollection("bills", { orderBy: { field: "createdAt", direction: "desc" } });
   const [form, setForm] = useState(blankForm);
@@ -64,6 +68,7 @@ export default function InventoryPage({ readOnly = false }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (editingId ? !canUpdate : !canCreate) return;
     setSubmitting(true);
     setMessage("");
     try {
@@ -92,7 +97,7 @@ export default function InventoryPage({ readOnly = false }) {
   }
 
   async function handleDelete(id) {
-    if (user.role !== "admin") return;
+    if (!canDelete) return;
     if (!confirm("Are you sure you want to delete this product from master list?")) return;
     await deleteRecord("product_master", id);
   }
@@ -134,7 +139,7 @@ export default function InventoryPage({ readOnly = false }) {
 
   return (
     <div className="list-stack">
-      {!readOnly ? (
+      {!readOnly && (canCreate || canUpdate) ? (
         <PageSection title={editingId ? "Edit Master Product" : "Add New Product to Master"} subtitle="Define product details here. Stock quantity is added via Purchases page.">
           <form className="list-stack" onSubmit={handleSubmit}>
             <div className="form-grid">
@@ -233,10 +238,8 @@ export default function InventoryPage({ readOnly = false }) {
                     <Button type="button" variant="secondary" onClick={() => setSelectedProductId(row.id)} title="View Sales Chart">
                       Chart
                     </Button>
-                    <Button type="button" variant="secondary" onClick={() => startEdit(row)}>
-                      Edit
-                    </Button>
-                    {user.role === "admin" ? (
+                    {canUpdate ? <Button type="button" variant="secondary" onClick={() => startEdit(row)}>Edit</Button> : null}
+                    {canDelete ? (
                       <Button type="button" variant="danger" onClick={() => handleDelete(row.id)}>
                         Delete
                       </Button>

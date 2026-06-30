@@ -6,22 +6,19 @@ import DataTable from "../components/DataTable";
 import PageSection from "../components/PageSection";
 import { useAuth } from "../hooks/useAuth";
 import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
-import { formatCurrency, formatDate } from "../utils/format";
+import { formatCurrency, formatDate, isClosedForDate } from "../utils/format";
 import { printBill } from "../utils/printBill";
+import { hasPermission } from "../utils/permissions";
 
 export default function BillsHistoryPage() {
   const { user } = useAuth();
+  const canUpdate = hasPermission(user, "sales", "update") || hasPermission(user, "billing", "update");
   const navigate = useNavigate();
   const settings = useFirestoreCollection("app_settings", { orderBy: { field: "createdAt", direction: "desc" } });
   const currentSettings = settings.data[0] || {};
-  const options =
-    user.role === "admin"
-      ? { orderBy: { field: "createdAt", direction: "desc" } }
-      : {
-        where: [{ field: "createdBy", operator: "==", value: user.uid }],
-        orderBy: { field: "createdAt", direction: "desc" },
-      };
+  const options = { orderBy: { field: "createdAt", direction: "desc" } };
   const bills = useFirestoreCollection("bills", options);
+  const closings = useFirestoreCollection("daily_closings", { orderBy: { field: "closingDate", direction: "desc" } });
   const [search, setSearch] = useState("");
 
   const filteredBills = useMemo(() => {
@@ -33,13 +30,13 @@ export default function BillsHistoryPage() {
     );
   }, [bills.data, search]);
 
-  if (bills.loading) {
+  if (bills.loading || closings.loading) {
     return <Loader text="Loading bills..." />;
   }
 
   return (
     <div className="list-stack">
-      <PageSection title={user.role === "admin" ? "Bills History" : "My Bills"} subtitle="Saved billing records">
+      <PageSection title="Bills History" subtitle="Saved billing records">
         <div className="field" style={{ marginBottom: '16px', maxWidth: '400px' }}>
           <input 
             placeholder="Search by Bill No or Customer Name..." 
@@ -56,19 +53,19 @@ export default function BillsHistoryPage() {
             { key: "total", label: "Total", render: (row) => formatCurrency(row.total) },
             { key: "createdByName", label: "Created By" },
             { key: "createdAt", label: "Created At", render: (row) => formatDate(row.createdAt) },
-            ...(user.role === "admin"
-              ? [{
+            ...[{
                 key: "actions",
                 label: "Action",
                 render: (row) => (
                   <div style={{ display: "flex", gap: "8px" }}>
-                    <Button
+                    {canUpdate ? <Button
                       type="button"
                       variant="secondary"
-                      onClick={() => navigate(`/admin/pos-billing?editBill=${row.id}`)}
+                      disabled={isClosedForDate(row.createdAt, closings.data)}
+                      onClick={() => navigate(`${user.role === "admin" ? "/admin/pos-billing" : "/staff/billing"}?editBill=${row.id}`)}
                     >
-                      Edit
-                    </Button>
+                      {isClosedForDate(row.createdAt, closings.data) ? "Closed" : "Edit"}
+                    </Button> : null}
                     <Button
                       type="button"
                       variant="secondary"
@@ -78,8 +75,7 @@ export default function BillsHistoryPage() {
                     </Button>
                   </div>
                 ),
-              }]
-              : []),
+              }],
           ]}
         />
       </PageSection>

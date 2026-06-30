@@ -126,8 +126,8 @@ export default function PurchasesPage() {
     <div className="list-stack">
       <PageSection title="New Purchase Entry" subtitle="Select a product from master list and record supplier details">
         <form className="list-stack" onSubmit={handleSubmit}>
-          <div className="form-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <div className="field" style={{ gridColumn: 'span 2' }}>
+          <div className="form-grid form-grid-four">
+            <div className="field field-span-2">
               <Autocomplete
                 label="Search Product (Brand, Model, or Name)"
                 placeholder="Type to search..."
@@ -191,8 +191,8 @@ export default function PurchasesPage() {
             <div className="field"><label>Buying Price</label><input type="number" min="0" value={form.buyingPrice} onChange={(event) => setForm((current) => ({ ...current, buyingPrice: event.target.value }))} placeholder="Cost per item" required /></div>
             <div className="field"><label>Payment Source</label><select value={form.paymentSource} onChange={(event) => setForm((current) => ({ ...current, paymentSource: event.target.value }))}><option value="cash">cash</option><option value="account">account</option></select></div>
             <div className="field">
-              <label>IMEI / Serial (Optional)</label>
-              <input value={form.imei} onChange={(event) => setForm((current) => ({ ...current, imei: event.target.value }))} placeholder="Unique ID for this stock" />
+              <label>Scan IMEI / Serial (Optional)</label>
+              <input value={form.imei} onChange={(event) => setForm((current) => ({ ...current, imei: event.target.value }))} placeholder="Scan barcode or enter unique ID" autoComplete="off" />
             </div>
           </div>
           

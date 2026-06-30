@@ -34,14 +34,13 @@ export default function StaffOldMobilesPage() {
     
     setSubmitting(true);
     try {
-      await sellOldMobile(
-        sellModal.item.id,
-        sellModal.sellPrice,
-        sellModal.customerName,
-        sellModal.customerPhone,
-        user.id || user.uid,
-        user.name || "Staff"
-      );
+      await sellOldMobile({
+        inventoryId: sellModal.item.id,
+        sellPrice: sellModal.sellPrice,
+        customerName: sellModal.customerName,
+        customerPhone: sellModal.customerPhone,
+        currentUser: user,
+      });
       
       const billData = {
         billNo: "OLD-" + Date.now().toString().slice(-6),

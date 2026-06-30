@@ -7,6 +7,7 @@ create table if not exists public.users (
   phone text default '',
   role text not null default 'staff' check (role in ('admin', 'staff')),
   active boolean not null default true,
+  permissions jsonb not null default '{"today":{"read":true,"update":true},"inventory":{"read":true},"sales":{"read":true},"billing":{"create":true,"read":true},"money_transfer":{"create":true,"read":true},"service_jobs":{"create":true,"read":true,"update":true},"old_mobiles":{"create":true,"read":true,"update":true}}'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -57,6 +58,9 @@ create table if not exists public.inventory (
   supplier text default '',
   status text not null default 'available' check (status in ('available', 'sold', 'damaged', 'returned')),
   condition text default '',
+  aadhar_no text default '',
+  repair_cost numeric(12,2) not null default 0,
+  repair_note text default '',
   note text default '',
   created_by uuid references public.users (id),
   created_by_name text default '',
@@ -170,18 +174,45 @@ create table if not exists public.money_transfers (
 );
 
 alter table public.money_transfers add column if not exists aadhar_no text default '';
+alter table public.inventory add column if not exists aadhar_no text default '';
+alter table public.inventory add column if not exists repair_cost numeric(12,2) not null default 0;
+alter table public.inventory add column if not exists repair_note text default '';
 
 create table if not exists public.old_mobile_transactions (
   id uuid primary key default gen_random_uuid(),
   mobile_id uuid not null references public.inventory (id) on delete cascade,
   buy_price numeric(12,2) not null default 0,
   sell_price numeric(12,2) not null default 0,
+  repair_cost numeric(12,2) not null default 0,
   profit numeric(12,2) not null default 0,
   customer_name text not null,
+  seller_name text default '',
+  seller_phone text default '',
+  buyer_name text default '',
+  buyer_phone text default '',
+  aadhar_no text default '',
+  expected_sell_price numeric(12,2) not null default 0,
   created_by uuid references public.users (id),
   created_at timestamptz not null default now(),
   stage text not null default 'purchased'
 );
+
+create table if not exists public.old_mobile_repairs (
+  id uuid primary key default gen_random_uuid(),
+  mobile_id uuid not null references public.inventory (id) on delete cascade,
+  amount numeric(12,2) not null default 0,
+  note text default '',
+  created_by uuid references public.users (id),
+  created_at timestamptz not null default now()
+);
+
+alter table public.old_mobile_transactions add column if not exists repair_cost numeric(12,2) not null default 0;
+alter table public.old_mobile_transactions add column if not exists seller_name text default '';
+alter table public.old_mobile_transactions add column if not exists seller_phone text default '';
+alter table public.old_mobile_transactions add column if not exists buyer_name text default '';
+alter table public.old_mobile_transactions add column if not exists buyer_phone text default '';
+alter table public.old_mobile_transactions add column if not exists aadhar_no text default '';
+alter table public.old_mobile_transactions add column if not exists expected_sell_price numeric(12,2) not null default 0;
 
 create table if not exists public.counters (
   name text primary key,
@@ -236,6 +267,24 @@ create table if not exists public.staff_attendance (
   note text default '',
   created_at timestamptz not null default now(),
   unique(staff_id, attendance_date)
+);
+
+create table if not exists public.daily_closings (
+  id uuid primary key default gen_random_uuid(),
+  closing_date date not null unique,
+  counted_cash numeric(12,2) not null default 0,
+  counted_account numeric(12,2) not null default 0,
+  expected_cash numeric(12,2) not null default 0,
+  expected_account numeric(12,2) not null default 0,
+  expenses numeric(12,2) not null default 0,
+  pending_service_advance numeric(12,2) not null default 0,
+  mismatch_cash numeric(12,2) not null default 0,
+  mismatch_account numeric(12,2) not null default 0,
+  note text default '',
+  closed_by uuid references public.users (id),
+  closed_by_name text default '',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
 -- Migration for existing tables
@@ -353,6 +402,19 @@ security definer
 set search_path = public
 as $$
   select coalesce((select active from public.users where id = auth.uid()), false);
+$$;
+
+create or replace function public.has_permission(p_module text, p_operation text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce((
+    select active and (role = 'admin' or coalesce((permissions -> p_module ->> p_operation)::boolean, false))
+    from public.users where id = auth.uid()
+  ), false);
 $$;
 
 create or replace function public.next_document_number(counter_name text, prefix text)
@@ -657,7 +719,8 @@ create or replace function public.create_old_mobile_purchase(
   p_condition text,
   p_note text,
   p_created_by uuid,
-  p_created_by_name text
+  p_created_by_name text,
+  p_aadhar_no text default ''
 )
 returns uuid
 language plpgsql
@@ -680,13 +743,13 @@ begin
   insert into public.inventory(
     category, type, brand, model, item_name, imei, serial_number,
     buying_price, selling_price, quantity, min_stock, supplier, status,
-    condition, note, created_by, created_by_name
+    condition, aadhar_no, note, created_by, created_by_name
   )
   values (
     'old_mobile', 'used_phone', coalesce(p_brand, ''), coalesce(p_model, ''),
     trim(coalesce(p_brand, '') || ' ' || coalesce(p_model, '')),
     p_imei, coalesce(p_serial_number, ''), p_buy_price, p_expected_sell_price, 1, 0,
-    p_customer_name, 'available', coalesce(p_condition, ''), coalesce(p_note, ''),
+    p_customer_name, 'available', coalesce(p_condition, ''), coalesce(p_aadhar_no, ''), coalesce(p_note, ''),
     v_actor_id, coalesce(v_actor_name, p_created_by_name, '')
   )
   returning id into v_inventory_id;
@@ -694,8 +757,14 @@ begin
   insert into public.cash_ledger(type, category, amount, note, created_by, created_by_name)
   values ('expense', 'old_mobile_purchase', p_buy_price, 'Old mobile bought from ' || p_customer_name, v_actor_id, coalesce(v_actor_name, p_created_by_name, ''));
 
-  insert into public.old_mobile_transactions(mobile_id, buy_price, sell_price, profit, customer_name, created_by, stage)
-  values (v_inventory_id, p_buy_price, 0, 0, p_customer_name, v_actor_id, 'purchased');
+  insert into public.old_mobile_transactions(
+    mobile_id, buy_price, sell_price, repair_cost, profit, customer_name,
+    seller_name, seller_phone, aadhar_no, expected_sell_price, created_by, stage
+  )
+  values (
+    v_inventory_id, p_buy_price, 0, 0, 0, p_customer_name,
+    p_customer_name, p_customer_phone, coalesce(p_aadhar_no, ''), p_expected_sell_price, v_actor_id, 'purchased'
+  );
 
   insert into public.inventory_transactions(item_id, action, quantity, note, staff_id)
   values (v_inventory_id, 'stock_in', 1, 'Old mobile purchase', v_actor_id);
@@ -719,6 +788,7 @@ set search_path = public
 as $$
 declare
   v_buy_price numeric;
+  v_repair_cost numeric;
   v_actor_id uuid;
   v_actor_name text;
 begin
@@ -730,9 +800,15 @@ begin
   select name into v_actor_name from public.users where id = v_actor_id;
   perform public.ensure_customer(p_customer_name, p_customer_phone);
 
-  select buying_price into v_buy_price from public.inventory where id = p_inventory_id for update;
+  select buying_price, repair_cost into v_buy_price, v_repair_cost
+  from public.inventory
+  where id = p_inventory_id
+    and category = 'old_mobile'
+    and status = 'available'
+    and quantity > 0
+  for update;
   if v_buy_price is null then
-    raise exception 'Old mobile not found';
+    raise exception 'Old mobile is not available for sale';
   end if;
 
 
@@ -740,8 +816,15 @@ begin
   set selling_price = p_sell_price, quantity = 0, status = 'sold'
   where id = p_inventory_id;
 
-  insert into public.old_mobile_transactions(mobile_id, buy_price, sell_price, profit, customer_name, created_by, stage)
-  values (p_inventory_id, v_buy_price, p_sell_price, p_sell_price - v_buy_price, p_customer_name, v_actor_id, 'sold');
+  insert into public.old_mobile_transactions(
+    mobile_id, buy_price, sell_price, repair_cost, profit, customer_name,
+    buyer_name, buyer_phone, created_by, stage
+  )
+  values (
+    p_inventory_id, v_buy_price, p_sell_price, coalesce(v_repair_cost, 0),
+    p_sell_price - (v_buy_price + coalesce(v_repair_cost, 0)),
+    p_customer_name, p_customer_name, p_customer_phone, v_actor_id, 'sold'
+  );
 
   insert into public.cash_ledger(type, category, amount, note, created_by, created_by_name)
   values ('income', 'old_mobile_sale', p_sell_price, 'Old mobile sold to ' || p_customer_name, v_actor_id, coalesce(p_created_by_name, v_actor_name, ''));
@@ -761,10 +844,12 @@ alter table public.cash_ledger enable row level security;
 alter table public.account_ledger enable row level security;
 alter table public.money_transfers enable row level security;
 alter table public.old_mobile_transactions enable row level security;
+alter table public.old_mobile_repairs enable row level security;
 alter table public.counters enable row level security;
 alter table public.purchase_entries enable row level security;
 alter table public.automated_bills enable row level security;
 alter table public.staff_attendance enable row level security;
+alter table public.daily_closings enable row level security;
 alter table public.online_orders enable row level security;
 alter table public.sms_campaigns enable row level security;
 alter table public.app_settings enable row level security;
@@ -795,13 +880,21 @@ drop policy if exists "account ledger admin write" on public.account_ledger;
 drop policy if exists "account ledger staff insert" on public.account_ledger;
 drop policy if exists "money transfers admin" on public.money_transfers;
 drop policy if exists "money transfers active user" on public.money_transfers;
+drop policy if exists "money transfers active select" on public.money_transfers;
+drop policy if exists "money transfers active insert" on public.money_transfers;
+drop policy if exists "money transfers admin update" on public.money_transfers;
+drop policy if exists "money transfers admin delete" on public.money_transfers;
 drop policy if exists "old mobile tx select" on public.old_mobile_transactions;
+drop policy if exists "old mobile repairs active select" on public.old_mobile_repairs;
+drop policy if exists "old mobile repairs admin insert" on public.old_mobile_repairs;
 drop policy if exists "counters admin only" on public.counters;
 drop policy if exists "purchase entries admin" on public.purchase_entries;
 drop policy if exists "automated bills admin" on public.automated_bills;
 drop policy if exists "staff attendance admin" on public.staff_attendance;
 drop policy if exists "staff attendance self select" on public.staff_attendance;
 drop policy if exists "staff attendance self handle" on public.staff_attendance;
+drop policy if exists "daily closings active select" on public.daily_closings;
+drop policy if exists "daily closings admin write" on public.daily_closings;
 drop policy if exists "online orders admin" on public.online_orders;
 drop policy if exists "sms campaigns admin" on public.sms_campaigns;
 drop policy if exists "app settings admin" on public.app_settings;
@@ -819,8 +912,8 @@ with check ((id = auth.uid() and role = 'staff') or public.is_admin());
 
 create policy "users admin update" on public.users
 for update to authenticated
-using (public.is_admin() or id = auth.uid())
-with check (public.is_admin() or id = auth.uid());
+using (public.is_admin())
+with check (public.is_admin());
 
 create policy "customers active select" on public.customers
 for select to authenticated
@@ -901,14 +994,34 @@ create policy "account ledger staff insert" on public.account_ledger
 for insert to authenticated
 with check (public.is_active_user() and created_by = auth.uid());
 
-create policy "money transfers active user" on public.money_transfers
-for all to authenticated
-using (public.is_active_user())
-with check (public.is_active_user());
+create policy "money transfers active select" on public.money_transfers
+for select to authenticated
+using (public.is_active_user());
+
+create policy "money transfers active insert" on public.money_transfers
+for insert to authenticated
+with check (public.is_active_user() and created_by = auth.uid());
+
+create policy "money transfers admin update" on public.money_transfers
+for update to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+create policy "money transfers admin delete" on public.money_transfers
+for delete to authenticated
+using (public.is_admin());
 
 create policy "old mobile tx select" on public.old_mobile_transactions
 for select to authenticated
 using (public.is_admin() or created_by = auth.uid());
+
+create policy "old mobile repairs active select" on public.old_mobile_repairs
+for select to authenticated
+using (public.is_active_user());
+
+create policy "old mobile repairs admin insert" on public.old_mobile_repairs
+for insert to authenticated
+with check (public.is_admin() and created_by = auth.uid());
 
 create policy "counters admin only" on public.counters
 for all to authenticated
@@ -950,6 +1063,15 @@ for all to authenticated
 using (staff_id = auth.uid())
 with check (staff_id = auth.uid());
 
+create policy "daily closings active select" on public.daily_closings
+for select to authenticated
+using (public.is_active_user());
+
+create policy "daily closings admin write" on public.daily_closings
+for all to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
 create policy "online orders admin" on public.online_orders
 for all to authenticated
 using (public.is_admin())
@@ -968,7 +1090,7 @@ with check (public.is_admin());
 grant execute on function public.create_bill(uuid, text, text, text, jsonb, numeric, numeric, numeric, numeric, numeric, text, uuid, text) to authenticated;
 grant execute on function public.create_service_job(text, text, text, text, text, text, numeric, numeric, text, uuid, text, text, numeric, timestamptz) to authenticated;
 grant execute on function public.deliver_service_job(uuid, numeric, text, numeric) to authenticated;
-grant execute on function public.create_old_mobile_purchase(text, text, text, text, text, text, numeric, numeric, text, text, uuid, text) to authenticated;
+grant execute on function public.create_old_mobile_purchase(text, text, text, text, text, text, numeric, numeric, text, text, uuid, text, text) to authenticated;
 grant execute on function public.sell_old_mobile(uuid, text, text, numeric, uuid, text) to authenticated;
 grant execute on function public.check_in_staff() to authenticated;
 grant execute on function public.ensure_customer(text, text, text, text) to authenticated;
@@ -1037,6 +1159,12 @@ end $$;
 
 do $$
 begin
+  alter publication supabase_realtime add table public.old_mobile_repairs;
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
   alter publication supabase_realtime add table public.purchase_entries;
 exception when duplicate_object then null;
 end $$;
@@ -1050,6 +1178,12 @@ end $$;
 do $$
 begin
   alter publication supabase_realtime add table public.staff_attendance;
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter publication supabase_realtime add table public.daily_closings;
 exception when duplicate_object then null;
 end $$;
 

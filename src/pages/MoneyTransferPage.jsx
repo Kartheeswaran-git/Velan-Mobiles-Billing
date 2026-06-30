@@ -6,8 +6,9 @@ import PageSection from "../components/PageSection";
 import { createMoneyTransfer, deleteMoneyTransfer, updateRecord } from "../supabase/database";
 import { useAuth } from "../hooks/useAuth";
 import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
-import { computeLedgerSummary, formatCurrency, formatDate } from "../utils/format";
+import { computeLedgerSummary, formatCurrency, isClosedForDate } from "../utils/format";
 import Autocomplete from "../components/Autocomplete";
+import { hasPermission } from "../utils/permissions";
 
 const blankTransfer = {
   customerName: "",
@@ -25,10 +26,14 @@ function normalizePhone(value) {
 
 export default function MoneyTransferPage() {
   const { user } = useAuth();
+  const canCreate = hasPermission(user, "money_transfer", "create");
+  const canUpdate = hasPermission(user, "money_transfer", "update");
+  const canDelete = hasPermission(user, "money_transfer", "delete");
   const transfers = useFirestoreCollection("money_transfers", { orderBy: { field: "createdAt", direction: "desc" } });
   const customers = useFirestoreCollection("customers", { orderBy: { field: "createdAt", direction: "desc" } });
   const cash = useFirestoreCollection("cash_ledger", { orderBy: { field: "createdAt", direction: "desc" } });
   const account = useFirestoreCollection("account_ledger", { orderBy: { field: "createdAt", direction: "desc" } });
+  const closings = useFirestoreCollection("daily_closings", { orderBy: { field: "closingDate", direction: "desc" } });
   const [form, setForm] = useState(blankTransfer);
   const [editingId, setEditingId] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -66,10 +71,16 @@ export default function MoneyTransferPage() {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (editingId ? !canUpdate : !canCreate) return;
     setSubmitting(true);
     setMessage("");
     try {
       if (editingId) {
+        const original = transfers.data.find((transfer) => transfer.id === editingId);
+        if (original && isClosedForDate(original.createdAt, closings.data)) {
+          setMessage("Error: This transfer date is closed. Use a reversal/correction entry instead.");
+          return;
+        }
         await updateRecord("money_transfers", editingId, form);
         setMessage("Transfer record updated. (Note: Ledger balances were not modified)");
       } else {
@@ -84,6 +95,11 @@ export default function MoneyTransferPage() {
   }
 
   async function handleDelete(id) {
+    const original = transfers.data.find((transfer) => transfer.id === id);
+    if (original && isClosedForDate(original.createdAt, closings.data)) {
+      setMessage("Error: This transfer date is closed. Use a reversal/correction entry instead.");
+      return;
+    }
     if (!confirm("Are you sure? This will also remove the associated ledger entries and restore balances.")) return;
     setSubmitting(true);
     try {
@@ -108,7 +124,7 @@ export default function MoneyTransferPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  if (transfers.loading || customers.loading || cash.loading || account.loading) {
+  if (transfers.loading || customers.loading || cash.loading || account.loading || closings.loading) {
     return <Loader text="Loading customer money transfers..." />;
   }
 
@@ -116,7 +132,7 @@ export default function MoneyTransferPage() {
   const accountSummary = computeLedgerSummary(account.data);
 
   return (
-    <div className="list-stack" style={{ zoom: '95%', paddingRight: '24px' }}>
+    <div className="list-stack">
       <div className="dashboard-overview-grid">
         <div className="overview-card overview-card-success">
           <div className="overview-card-label">Cash in Hand</div>
@@ -133,7 +149,7 @@ export default function MoneyTransferPage() {
       <PageSection title="Customer Money Transfer" subtitle="Record customer cash-to-bank or bank-to-cash service with commission profit">
         {transfers.error ? <div className="badge danger">{transfers.error}</div> : null}
         <form className="list-stack" onSubmit={handleSubmit}>
-          <div className="form-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+          <div className="form-grid form-grid-three">
             <Autocomplete
               label="Customer Name"
               placeholder="Customer full name"
@@ -215,7 +231,7 @@ export default function MoneyTransferPage() {
           </div>
           {message ? <div className="badge success">{message}</div> : null}
           <div className="topbar-actions">
-            <Button type="submit" disabled={submitting}>
+            <Button type="submit" disabled={submitting || (editingId ? !canUpdate : !canCreate)}>
               {submitting ? "Processing..." : editingId ? "Update Transfer Record" : "Save Customer Transfer"}
             </Button>
             {editingId && (
@@ -268,14 +284,14 @@ export default function MoneyTransferPage() {
                 </div>
               )
             },
-            ...(user.role === "admin"
+            ...(canUpdate || canDelete
               ? [{
                 key: "actions",
                 label: "Action",
                 render: (row) => (
                   <div className="topbar-actions" style={{ flexWrap: 'nowrap' }}>
-                    <Button type="button" variant="secondary" onClick={() => startEdit(row)}>Edit</Button>
-                    <Button type="button" variant="danger" onClick={() => handleDelete(row.id)}>Delete</Button>
+                    {canUpdate ? <Button type="button" variant="secondary" onClick={() => startEdit(row)}>Edit</Button> : null}
+                    {canDelete ? <Button type="button" variant="danger" onClick={() => handleDelete(row.id)}>Delete</Button> : null}
                   </div>
                 ),
               }]

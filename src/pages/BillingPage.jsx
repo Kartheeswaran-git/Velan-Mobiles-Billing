@@ -7,7 +7,7 @@ import PageSection from "../components/PageSection";
 import { useAuth } from "../hooks/useAuth";
 import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
 import { createBill, fetchSingle, updateBillAdmin } from "../supabase/database";
-import { calculateBillSummary, formatCurrency } from "../utils/format";
+import { calculateBillSummary, formatCurrency, isClosedForDate } from "../utils/format";
 import { printBill } from "../utils/printBill";
 import Autocomplete from "../components/Autocomplete";
 
@@ -30,6 +30,16 @@ function normalizeBillItems(items = []) {
   });
 }
 
+function normalizeWhatsappPhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return "";
+  return digits.length === 10 ? `91${digits}` : digits;
+}
+
+function buildBillWhatsappMessage(bill) {
+  return `Hi ${bill.customerName}, thank you for shopping at Velan Mobiles. Your bill ${bill.billNo} is saved for ${formatCurrency(bill.total)}. Please keep this message for warranty/support reference.`;
+}
+
 export default function BillingPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -37,6 +47,7 @@ export default function BillingPage() {
   const editBillId = searchParams.get("editBill");
   const inventory = useFirestoreCollection("inventory", { orderBy: { field: "createdAt", direction: "desc" } });
   const settings = useFirestoreCollection("app_settings", { orderBy: { field: "createdAt", direction: "desc" } });
+  const closings = useFirestoreCollection("daily_closings", { orderBy: { field: "closingDate", direction: "desc" } });
   const currentSettings = settings.data[0] || {};
   const [customer, setCustomer] = useState(initialCustomer);
   const [line, setLine] = useState(initialLine);
@@ -155,6 +166,20 @@ export default function BillingPage() {
     });
   }
 
+  function handleScannerSearch(value) {
+    const scanned = String(value || "").trim().toLowerCase();
+    if (!scanned) return;
+    const exactItem = filteredInventory.find((item) => {
+      return [item.imei, item.serialNumber, item.serial_number]
+        .filter(Boolean)
+        .some((code) => String(code).trim().toLowerCase() === scanned);
+    });
+    if (exactItem) {
+      handleSelectItem(exactItem);
+      setSearch("");
+    }
+  }
+
   const selectedStock = filteredInventory.find((item) => item.id === line.inventoryId);
 
   function addToCart() {
@@ -211,7 +236,7 @@ export default function BillingPage() {
     setSearchParams({});
     setMessage("");
     setError("");
-    navigate("/admin/bills");
+    navigate(user.role === "admin" ? "/admin/bills" : "/staff/bills");
   }
 
   function syncPayment(type, total) {
@@ -229,10 +254,22 @@ export default function BillingPage() {
     printBill(lastSavedBill, currentSettings);
   }
 
+  function handleWhatsappBill() {
+    if (!lastSavedBill) return;
+    const phone = normalizeWhatsappPhone(lastSavedBill.customerPhone);
+    if (!phone) return;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(buildBillWhatsappMessage(lastSavedBill))}`, "_blank");
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
     setMessage("");
+
+    if (editingBill && isClosedForDate(editingBill.createdAt, closings.data)) {
+      setError("This bill date is already closed. Create a reversal/correction entry instead of editing the closed bill.");
+      return;
+    }
 
     if (!customer.name || !customer.phone || !cart.length) {
       setError("Customer name, phone, and at least one item are required. Address is optional.");
@@ -306,7 +343,7 @@ export default function BillingPage() {
     }
   }
 
-  if (inventory.loading || loadingEditBill) {
+  if (inventory.loading || closings.loading || loadingEditBill) {
     return <Loader text="Loading inventory for billing..." />;
   }
 
@@ -375,8 +412,19 @@ export default function BillingPage() {
                   <span className="muted">Search and add stock directly into the bill</span>
                 </div>
                 <div className="field" style={{ marginBottom: 12 }}>
-                  <label>Search by item or IMEI</label>
-                  <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Samsung, charger, IMEI..." />
+                  <label>Search / Scan IMEI Barcode</label>
+                  <input
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleScannerSearch(event.currentTarget.value);
+                      }
+                    }}
+                    placeholder="Scan barcode or type Samsung, charger, IMEI..."
+                    autoComplete="off"
+                  />
                 </div>
 
                 <div className="billing-stock-grid">
@@ -586,6 +634,9 @@ export default function BillingPage() {
                   ) : null}
                   <Button type="button" variant="secondary" onClick={handlePrintBill} disabled={!lastSavedBill}>
                     Print Bill
+                  </Button>
+                  <Button type="button" variant="secondary" onClick={handleWhatsappBill} disabled={!lastSavedBill}>
+                    WhatsApp
                   </Button>
                 </div>
               </div>

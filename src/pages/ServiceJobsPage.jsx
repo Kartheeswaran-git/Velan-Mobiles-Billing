@@ -10,7 +10,7 @@ import { createServiceJob, updateServiceJob, updateServiceStatus, deliverService
 import { useAuth } from "../hooks/useAuth";
 import { useFirestoreCollection } from "../hooks/useFirestoreCollection";
 import { serviceStatuses } from "../utils/constants";
-import { formatCurrency, formatDate, isSameDay } from "../utils/format";
+import { formatCurrency, formatDate, isClosedForDate, isSameDay } from "../utils/format";
 
 const blankJob = {
   customerName: "",
@@ -124,6 +124,7 @@ export default function ServiceJobsPage() {
     orderBy: { field: "receivedAt", direction: "asc" },
   });
   const settings = useFirestoreCollection("app_settings", { orderBy: { field: "createdAt", direction: "desc" } });
+  const closings = useFirestoreCollection("daily_closings", { orderBy: { field: "closingDate", direction: "desc" } });
   const [form, setForm] = useState(blankJob);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState("");
@@ -225,6 +226,11 @@ export default function ServiceJobsPage() {
       };
 
       if (editingId) {
+        const original = jobs.data.find((job) => job.id === editingId);
+        if (original && isClosedForDate(original.receivedAt, closings.data)) {
+          setError("This service job date is already closed. Create a correction entry instead of editing closed history.");
+          return;
+        }
         await updateServiceJob(editingId, payload);
         setMessage(`Service job ${payload.boxNo || "updated"} saved successfully.`);
         resetForm();
@@ -253,6 +259,11 @@ export default function ServiceJobsPage() {
       return;
     }
     try {
+      const job = jobs.data.find(j => j.id === id);
+      if (job && isClosedForDate(job.receivedAt, closings.data)) {
+        alert("This service job date is already closed. Create a correction entry instead.");
+        return;
+      }
       await updateServiceStatus(id, status);
     } catch (err) {
       alert("Failed to update status: " + err.message);
@@ -271,6 +282,10 @@ export default function ServiceJobsPage() {
   async function handleDeliverSubmit() {
     try {
       setSubmitting(true);
+      if (isClosedForDate(new Date(), closings.data)) {
+        alert("Today is already closed. Reopen/correct the day before recording delivery.");
+        return;
+      }
       await deliverServiceJob({
         jobId: deliveryJob.id,
         finalAmount: deliveryForm.finalAmount,
@@ -288,13 +303,18 @@ export default function ServiceJobsPage() {
 
   async function handleExpenseChange(id, value) {
     try {
+      const job = jobs.data.find(j => j.id === id);
+      if (job && isClosedForDate(job.receivedAt, closings.data)) {
+        alert("This service job date is already closed. Create a correction entry instead.");
+        return;
+      }
       await updateServiceJob(id, { sparePartsCost: Number(value || 0) });
     } catch (err) {
       alert("Failed to update spare cost: " + err.message);
     }
   }
 
-  if (jobs.loading) {
+  if (jobs.loading || closings.loading) {
     return <Loader text="Loading service jobs..." />;
   }
 

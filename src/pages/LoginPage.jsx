@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import { useAuth } from "../hooks/useAuth";
+import { firstAllowedStaffPath } from "../utils/permissions";
 
 export default function LoginPage() {
   const { login, user, loading } = useAuth();
@@ -13,7 +14,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!loading && user?.role) {
-      navigate(user.role === "admin" ? "/admin" : "/staff", { replace: true });
+      navigate(user.role === "admin" ? "/admin" : firstAllowedStaffPath(user), { replace: true });
     }
   }, [loading, navigate, user]);
 

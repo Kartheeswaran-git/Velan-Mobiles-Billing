@@ -72,7 +72,7 @@ export default function DataExportPage() {
         <div className="muted" style={{ fontSize: '0.95rem', lineHeight: '1.6' }}>
           <p>1. Download the file using the buttons above.</p>
           <p>2. Open Microsoft Excel.</p>
-          <p>3. Go to <strong>File > Open</strong> and select the downloaded .csv file.</p>
+          <p>3. Go to <strong>File &gt; Open</strong> and select the downloaded .csv file.</p>
           <p>4. If Excel asks for formatting, choose <strong>Comma</strong> as the delimiter.</p>
         </div>
       </PageSection>

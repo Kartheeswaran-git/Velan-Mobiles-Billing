@@ -29,6 +29,13 @@ export function isSameDay(value, comparison = new Date()) {
   return left.toDateString() === right.toDateString();
 }
 
+export function formatInputDate(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function formatDateKey(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -55,4 +62,11 @@ export function computeLedgerSummary(entries) {
     expense,
     closing: income - expense,
   };
+}
+
+export function isClosedForDate(value, closings = []) {
+  const date = toDateObject(value);
+  if (!date) return false;
+  const key = formatInputDate(date);
+  return closings.some((closing) => closing.closingDate === key);
 }

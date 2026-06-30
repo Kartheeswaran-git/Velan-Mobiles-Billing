@@ -26,10 +26,27 @@ import SettingsPage from "./pages/SettingsPage";
 import MoneyTransferPage from "./pages/MoneyTransferPage";
 import DataExportPage from "./pages/DataExportPage";
 import StaffOldMobilesPage from "./pages/StaffOldMobilesPage";
+import TodayPage from "./pages/TodayPage";
 import ProtectedRoute from "./routes/ProtectedRoute";
+import { useAuth } from "./hooks/useAuth";
+import { firstAllowedStaffPath } from "./utils/permissions";
 
 function HomeRedirect() {
   return <Navigate to="/login" replace />;
+}
+
+function StaffHomeRedirect() {
+  const { user } = useAuth();
+  const destination = firstAllowedStaffPath(user);
+  return destination === "/staff" ? <TodayPage /> : <Navigate to={destination} replace />;
+}
+
+function StaffPage({ permission, children }) {
+  return (
+    <ProtectedRoute allowedRoles={["staff", "admin"]} permission={permission}>
+      {children}
+    </ProtectedRoute>
+  );
 }
 
 export default function App() {
@@ -47,6 +64,7 @@ export default function App() {
         }
       >
         <Route index element={<AdminDashboardPage />} />
+        <Route path="today" element={<TodayPage />} />
         <Route path="dashboard" element={<AdminDashboardPage />} />
         <Route path="parties" element={<PartiesPage />} />
         <Route path="items" element={<InventoryPage />} />
@@ -84,14 +102,29 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<StaffDashboardPage />} />
-        <Route path="billing" element={<BillingPage />} />
-        <Route path="bills" element={<BillsHistoryPage />} />
-        <Route path="service-jobs" element={<ServiceJobsPage />} />
-        <Route path="money-transfer" element={<MoneyTransferPage />} />
-        <Route path="cash-ledger" element={<CashLedgerPage />} />
-        <Route path="inventory" element={<InventoryPage readOnly />} />
-        <Route path="old-mobiles" element={<StaffOldMobilesPage />} />
+        <Route index element={<StaffHomeRedirect />} />
+        <Route path="dashboard" element={<StaffPage permission="today"><StaffDashboardPage /></StaffPage>} />
+        <Route path="today" element={<StaffPage permission="today"><TodayPage /></StaffPage>} />
+        <Route path="parties" element={<StaffPage permission="parties"><PartiesPage /></StaffPage>} />
+        <Route path="inventory" element={<StaffPage permission="inventory"><InventoryPage /></StaffPage>} />
+        <Route path="billing" element={<StaffPage permission="billing"><BillingPage /></StaffPage>} />
+        <Route path="bills" element={<StaffPage permission="sales"><BillsHistoryPage /></StaffPage>} />
+        <Route path="purchases" element={<StaffPage permission="purchases"><PurchasesPage /></StaffPage>} />
+        <Route path="cash-bank" element={<StaffPage permission="cash_bank"><CashBankPage /></StaffPage>} />
+        <Route path="cash-ledger" element={<StaffPage permission="cash_bank"><CashLedgerPage /></StaffPage>} />
+        <Route path="account-ledger" element={<StaffPage permission="cash_bank"><AccountLedgerPage /></StaffPage>} />
+        <Route path="money-transfer" element={<StaffPage permission="money_transfer"><MoneyTransferPage /></StaffPage>} />
+        <Route path="e-invoicing" element={<StaffPage permission="e_invoicing"><EInvoicingPage /></StaffPage>} />
+        <Route path="automated-bills" element={<StaffPage permission="automated_bills"><AutomatedBillsPage /></StaffPage>} />
+        <Route path="expenses" element={<StaffPage permission="expenses"><ExpensesPage /></StaffPage>} />
+        <Route path="attendance-payroll" element={<StaffPage permission="attendance"><AttendancePayrollPage /></StaffPage>} />
+        <Route path="online-orders" element={<StaffPage permission="online_orders"><OnlineOrdersPage /></StaffPage>} />
+        <Route path="sms-marketing" element={<StaffPage permission="sms_marketing"><SmsMarketingPage /></StaffPage>} />
+        <Route path="service-jobs" element={<StaffPage permission="service_jobs"><ServiceJobsPage /></StaffPage>} />
+        <Route path="old-mobiles" element={<StaffPage permission="old_mobiles"><StaffOldMobilesPage /></StaffPage>} />
+        <Route path="reports" element={<StaffPage permission="reports"><ReportsPage /></StaffPage>} />
+        <Route path="data-export" element={<StaffPage permission="data_export"><DataExportPage /></StaffPage>} />
+        <Route path="settings" element={<StaffPage permission="settings"><SettingsPage /></StaffPage>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/login" replace />} />

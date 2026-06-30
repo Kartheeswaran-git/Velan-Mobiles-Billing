@@ -129,7 +129,7 @@ export default function OldMobilesPage() {
 
   return (
     <div className="list-stack">
-      <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))' }}>
+      <div className="form-grid form-grid-wide">
         <PageSection title="Buy Old Mobile" subtitle="Record a used phone purchase">
           <form className="form-grid" onSubmit={handlePurchase}>
             <Autocomplete
@@ -175,8 +175,8 @@ export default function OldMobilesPage() {
             <div className="field"><label>Brand</label><input value={purchase.brand} onChange={(event) => setPurchase((current) => ({ ...current, brand: event.target.value }))} placeholder="Apple, Samsung..." required /></div>
             <div className="field"><label>Model</label><input value={purchase.model} onChange={(event) => setPurchase((current) => ({ ...current, model: event.target.value }))} placeholder="iPhone 13, S21..." required /></div>
             
-            <div className="field"><label>IMEI</label><input value={purchase.imei} onChange={(event) => setPurchase((current) => ({ ...current, imei: event.target.value }))} placeholder="Device IMEI" required /></div>
-            <div className="field"><label>Serial Number</label><input value={purchase.serialNumber} onChange={(event) => setPurchase((current) => ({ ...current, serialNumber: event.target.value }))} placeholder="Optional S/N" /></div>
+            <div className="field"><label>Scan IMEI Barcode</label><input value={purchase.imei} onChange={(event) => setPurchase((current) => ({ ...current, imei: event.target.value }))} placeholder="Scan or enter device IMEI" autoComplete="off" required /></div>
+            <div className="field"><label>Serial Number</label><input value={purchase.serialNumber} onChange={(event) => setPurchase((current) => ({ ...current, serialNumber: event.target.value }))} placeholder="Optional S/N" autoComplete="off" /></div>
 
             <div className="field"><label>Aadhaar No</label><input value={purchase.aadharNo} onChange={(event) => setPurchase((current) => ({ ...current, aadharNo: event.target.value }))} placeholder="Seller Aadhaar" /></div>
             <div className="field"><label>Condition</label><input value={purchase.condition} onChange={(event) => setPurchase((current) => ({ ...current, condition: event.target.value }))} placeholder="Good, Cracked, etc." /></div>
@@ -204,7 +204,7 @@ export default function OldMobilesPage() {
           <form className="list-stack" onSubmit={handleSale}>
             <Autocomplete
               label="Available Mobile"
-              placeholder="Search by model or IMEI..."
+              placeholder="Scan IMEI or search by model..."
               value={mobileSearch}
               suggestions={oldMobiles.filter(m => m.status === 'available').map(m => `${m.itemName} - ${m.imei}`)}
               onChange={(e) => {

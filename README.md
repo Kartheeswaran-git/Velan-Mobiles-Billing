@@ -5,8 +5,8 @@ React + Vite + Supabase mobile phone shop management application for billing, in
 ## Features
 
 - Supabase Auth login for `admin` and `staff`
-- Supabase Postgres-backed role profiles in `users`
-- Role protected admin and staff routes
+- Supabase Postgres-backed role and CRUD permission profiles in `users`
+- Permission-protected admin and staff routes
 - Billing flow with stock reduction and ledger updates through SQL RPC functions
 - Inventory CRUD with IMEI support and low stock visibility
 - Service job management with status updates
@@ -26,6 +26,8 @@ npm install
 2. Run the SQL schema in your Supabase SQL editor:
 
 `supabase/schema.sql`
+
+Then run `supabase/staff-permissions.sql`. For an existing database, run only this migration to add staff CRUD permissions.
 
 3. Create your first auth user in Supabase Authentication.
 
@@ -61,7 +63,7 @@ npm run dev
 ## Login flow
 
 - Create users in Supabase Auth.
-- The app auto-creates a matching `users` profile on first login with the default role `staff`.
+- The app auto-creates a matching `users` profile on first login with the default role `staff` and standard staff permissions.
 - Promote your first real admin manually with SQL, then use the app for profile updates.
 
 ## Important security note

@@ -1,12 +1,14 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import Button from "../components/Button";
+import { hasPermission, PERMISSION_MODULES } from "../utils/permissions";
 
 const adminSections = [
   {
     title: "General",
     links: [
       { to: "/admin", label: "Dashboard" },
+      { to: "/admin/today", label: "Today" },
       { to: "/admin/parties", label: "Parties" },
       { to: "/admin/items", label: "Items" },
       { to: "/admin/sales", label: "Sales" },
@@ -40,21 +42,13 @@ const adminSections = [
   },
 ];
 
-const staffLinks = [
-  { to: "/staff", label: "Dashboard" },
-  { to: "/staff/billing", label: "Billing" },
-  { to: "/staff/bills", label: "My Bills" },
-  { to: "/staff/service-jobs", label: "Service Jobs" },
-  { to: "/staff/money-transfer", label: "Money Transfer" },
-  { to: "/staff/cash-ledger", label: "Cash Entry" },
-  { to: "/staff/inventory", label: "Inventory" },
-  { to: "/staff/old-mobiles", label: "Sell Old Mobile" },
-];
-
 export default function AppLayout({ role }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const staffLinks = PERMISSION_MODULES
+    .filter((module) => hasPermission(user, module.key, "read"))
+    .map((module) => ({ to: module.path, label: module.label, permission: module.key }));
   const links = role === "admin" ? adminSections.flatMap((section) => section.links) : staffLinks;
   const activeLink = links.find((link) => location.pathname === link.to);
   const activeTitle = activeLink?.label || (role === "admin" ? "Dashboard" : "Workspace");
@@ -71,37 +65,39 @@ export default function AppLayout({ role }) {
         <div className="brand">Velan Mobiles</div>
         <div className="brand-subtitle">Daily shop operations</div>
         <div className="sidebar-quick-action">
-          <Button variant="secondary" onClick={() => navigate(role === "admin" ? "/admin/pos-billing" : "/staff/billing")}>
-            Create Invoice
-          </Button>
-          <Button variant="secondary" onClick={() => navigate(`/${role}/money-transfer`)}>
-            Money Transfer
-          </Button>
-          <Button variant="secondary" onClick={() => navigate(`/${role}/service-jobs`)}>
-            New Service
-          </Button>
+          {(role === "admin" || hasPermission(user, "billing", "create")) ? (
+            <Button variant="secondary" onClick={() => navigate(role === "admin" ? "/admin/pos-billing" : "/staff/billing")}>Create Invoice</Button>
+          ) : null}
+          {(role === "admin" || hasPermission(user, "money_transfer", "create")) ? (
+            <Button variant="secondary" onClick={() => navigate(`/${role}/money-transfer`)}>Money Transfer</Button>
+          ) : null}
+          {(role === "admin" || hasPermission(user, "service_jobs", "create")) ? (
+            <Button variant="secondary" onClick={() => navigate(`/${role}/service-jobs`)}>New Service</Button>
+          ) : null}
         </div>
-        {role === "admin" ? (
-          adminSections.map((section) => (
-            <div key={section.title}>
-              <div className="nav-section-title">{section.title}</div>
-              {section.links.map((link) => (
+        <div className="sidebar-nav">
+          {role === "admin" ? (
+            adminSections.map((section) => (
+              <div key={section.title}>
+                <div className="nav-section-title">{section.title}</div>
+                {section.links.map((link) => (
+                  <NavLink key={link.to} to={link.to} end={link.to === `/${role}`} className="nav-link">
+                    {link.label}
+                  </NavLink>
+                ))}
+              </div>
+            ))
+          ) : (
+            <>
+              <div className="nav-section-title">task buttons</div>
+              {staffLinks.map((link) => (
                 <NavLink key={link.to} to={link.to} end={link.to === `/${role}`} className="nav-link">
                   {link.label}
                 </NavLink>
               ))}
-            </div>
-          ))
-        ) : (
-          <>
-            <div className="nav-section-title">{role} panel</div>
-            {staffLinks.map((link) => (
-              <NavLink key={link.to} to={link.to} end={link.to === `/${role}`} className="nav-link">
-                {link.label}
-              </NavLink>
-            ))}
-          </>
-        )}
+            </>
+          )}
+        </div>
       </aside>
 
       <main className="content">
@@ -125,9 +121,9 @@ export default function AppLayout({ role }) {
           </div>
           <div className="topbar-actions">
             <div className="dashboard-range-pill">{user?.role || role}</div>
-            <Button variant="secondary" onClick={() => navigate(role === "admin" ? "/admin/billing" : "/staff/billing")}>
-              Quick Billing
-            </Button>
+            {(role === "admin" || hasPermission(user, "billing", "create")) ? (
+              <Button variant="secondary" onClick={() => navigate(role === "admin" ? "/admin/billing" : "/staff/billing")}>Quick Billing</Button>
+            ) : null}
             <Button onClick={handleLogout}>Logout</Button>
           </div>
         </div>

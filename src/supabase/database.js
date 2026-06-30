@@ -1,6 +1,7 @@
 import { supabase } from "./client";
 import { camelizeRecord, snakeizeRecord, toSnakeCase } from "./transformers";
 import { formatDateKey } from "../utils/format";
+import { DEFAULT_STAFF_PERMISSIONS } from "../utils/permissions";
 
 function applyFilters(queryBuilder, options = {}) {
   let builder = queryBuilder;
@@ -74,6 +75,13 @@ export async function createOrUpdateUserProfile(uid, data) {
     id: uid,
   });
   const { error } = await supabase.from("users").upsert(payload, { onConflict: "id" });
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function deleteUserProfile(uid) {
+  const { error } = await supabase.from("users").delete().eq("id", uid);
   if (error) {
     throw new Error(error.message);
   }
@@ -710,6 +718,40 @@ export async function transferBetweenLedgers({ from, to, amount, note }, current
   }, currentUser);
 }
 
+export async function saveDailyClosing(payload, currentUser) {
+  const closingDate = payload.closingDate;
+  if (!closingDate) {
+    throw new Error("Closing date is required.");
+  }
+
+  const record = {
+    closingDate,
+    countedCash: Number(payload.countedCash || 0),
+    countedAccount: Number(payload.countedAccount || 0),
+    expectedCash: Number(payload.expectedCash || 0),
+    expectedAccount: Number(payload.expectedAccount || 0),
+    expenses: Number(payload.expenses || 0),
+    pendingServiceAdvance: Number(payload.pendingServiceAdvance || 0),
+    mismatchCash: Number(payload.countedCash || 0) - Number(payload.expectedCash || 0),
+    mismatchAccount: Number(payload.countedAccount || 0) - Number(payload.expectedAccount || 0),
+    note: payload.note || "",
+    closedBy: currentUser.uid || currentUser.id,
+    closedByName: currentUser.name || "Staff",
+  };
+
+  const { data, error } = await supabase
+    .from("daily_closings")
+    .upsert(snakeizeRecord(record), { onConflict: "closing_date" })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return camelizeRecord(data);
+}
+
 async function saveCustomerFromTransfer(payload) {
   const phone = String(payload.customerPhone || "").trim();
   if (!phone) {
@@ -815,6 +857,7 @@ export async function ensureUserProfile(authUser) {
       phone: authUser.user_metadata?.phone || "",
       role: "staff",
       active: true,
+      permissions: DEFAULT_STAFF_PERMISSIONS,
     };
     const { error } = await supabase.from("users").insert(snakeizeRecord(bootstrapProfile));
     if (error) {

@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase/client";
 import { checkInStaff, ensureUserProfile } from "../supabase/database";
+import { DEFAULT_STAFF_PERMISSIONS } from "../utils/permissions";
 
 const AuthContext = createContext(null);
 
@@ -51,9 +52,39 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!authUser?.id) return undefined;
+
+    const channel = supabase
+      .channel(`profile:${authUser.id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "users", filter: `id=eq.${authUser.id}` },
+        ({ new: nextProfile }) => {
+          setProfile((current) => ({
+            ...current,
+            ...nextProfile,
+            createdAt: nextProfile.created_at,
+          }));
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [authUser?.id]);
+
   const value = useMemo(
     () => ({
-      user: profile ? { ...profile, uid: authUser?.id, email: authUser?.email } : null,
+      user: profile
+        ? {
+            ...profile,
+            permissions: profile.role === "admin" ? {} : (profile.permissions || DEFAULT_STAFF_PERMISSIONS),
+            uid: authUser?.id,
+            email: authUser?.email,
+          }
+        : null,
       authUser,
       loading,
       login: async (email, password) => {
